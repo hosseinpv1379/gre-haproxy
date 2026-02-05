@@ -1,0 +1,295 @@
+# راهنمای کامل VortexL2 - از نصب تا پاک‌سازی
+# این فایل شامل تمام دستورات لازم برای راه‌اندازی و مدیریت تونل‌های L2TPv3 است
+
+# ============================================================================
+# بخش 1: نصب پیش‌نیازها و ماژول‌های کرنل
+# ============================================================================
+
+# به‌روزرسانی و نصب پکیج‌های مورد نیاز
+apt-get update
+apt-get install -y python3 python3-pip git iproute2 haproxy linux-modules-extra-$(uname -r)
+
+# لود کردن ماژول‌های L2TP
+modprobe l2tp_core && modprobe l2tp_netlink && modprobe l2tp_eth
+
+# تنظیم لود خودکار ماژول‌ها در بوت
+echo -e "l2tp_core\nl2tp_netlink\nl2tp_eth" > /etc/modules-load.d/vortexl2.conf
+
+# بررسی ماژول‌ها
+lsmod | grep l2tp
+
+
+# ============================================================================
+# بخش 2: ساخت تونل L2TPv3 - سمت IRAN
+# ============================================================================
+
+# ساخت تونل (مقادیر را با IP و شناسه‌های واقعی خود جایگزین کنید)
+ip l2tp add tunnel tunnel_id 1000 peer_tunnel_id 2000 encap ip local 1.2.3.4 remote 5.6.7.8
+
+# ساخت سشن در تونل
+ip l2tp add session tunnel_id 1000 session_id 10 peer_session_id 20
+
+# بالا آوردن اینترفیس و اختصاص IP
+sleep 1 && ip link set l2tpeth0 up && ip addr add 10.30.30.1/30 dev l2tpeth0
+
+# بررسی وضعیت
+ip l2tp show tunnel && ip l2tp show session && ip addr show l2tpeth0
+
+
+# ============================================================================
+# بخش 3: ساخت تونل L2TPv3 - سمت KHAREJ
+# ============================================================================
+
+# ساخت تونل (مقادیر با IRAN جابجا شده)
+ip l2tp add tunnel tunnel_id 2000 peer_tunnel_id 1000 encap ip local 5.6.7.8 remote 1.2.3.4
+
+# ساخت سشن (مقادیر با IRAN جابجا شده)
+ip l2tp add session tunnel_id 2000 session_id 20 peer_session_id 10
+
+# بالا آوردن اینترفیس و اختصاص IP
+sleep 1 && ip link set l2tpeth0 up && ip addr add 10.30.30.2/30 dev l2tpeth0
+
+# تست اتصال
+ping -c 3 10.30.30.1
+
+
+# ============================================================================
+# بخش 4: تنظیم فایروال برای پروتکل L2TP (IP protocol 115)
+# ============================================================================
+
+# روش iptables
+iptables -A INPUT -p 115 -j ACCEPT && iptables -A OUTPUT -p 115 -j ACCEPT
+iptables-save > /etc/iptables/rules.v4
+
+# روش nftables (مدرن‌تر)
+nft create table inet vortexl2_filter
+nft create chain inet vortexl2_filter input { type filter hook input priority 0 \; }
+nft create chain inet vortexl2_filter output { type filter hook output priority 0 \; }
+nft add rule inet vortexl2_filter input ip protocol 115 accept
+nft add rule inet vortexl2_filter output ip protocol 115 accept
+nft list ruleset > /etc/nftables.conf
+
+
+# ============================================================================
+# بخش 5: تنظیم Port Forwarding با HAProxy
+# ============================================================================
+# مسیرهای مهم HAProxy:
+# - کانفیگ اصلی: /etc/haproxy/haproxy.cfg
+# - پشتیبان: /etc/haproxy/haproxy.cfg.bak
+# - Socket آمار: /var/run/haproxy.sock
+
+# پشتیبان‌گیری از تنظیمات فعلی
+cp /etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg.bak
+
+# ایجاد فایل تنظیمات HAProxy (مثال برای پورت‌های 443، 80، 2053)
+cat > /etc/haproxy/haproxy.cfg << 'EOF'
+global
+    maxconn 10000
+    log stdout local0
+    chroot /var/lib/haproxy
+    stats socket /var/run/haproxy.sock mode 660 level admin
+    daemon
+
+defaults
+    mode tcp
+    option tcplog
+    timeout connect 5000
+    timeout client 50000
+    timeout server 50000
+
+backend tunnel_backend_443
+    mode tcp
+    server remote_443 10.30.30.2:443 check
+
+frontend tunnel_port_443
+    mode tcp
+    bind 0.0.0.0:443
+    default_backend tunnel_backend_443
+
+backend tunnel_backend_80
+    mode tcp
+    server remote_80 10.30.30.2:80 check
+
+frontend tunnel_port_80
+    mode tcp
+    bind 0.0.0.0:80
+    default_backend tunnel_backend_80
+
+backend tunnel_backend_2053
+    mode tcp
+    server remote_2053 10.30.30.2:2053 check
+
+frontend tunnel_port_2053
+    mode tcp
+    bind 0.0.0.0:2053
+    default_backend tunnel_backend_2053
+EOF
+
+# بررسی صحت تنظیمات و راه‌اندازی
+haproxy -c -f /etc/haproxy/haproxy.cfg && systemctl start haproxy && systemctl enable haproxy
+
+# بررسی پورت‌های در حال گوش دادن
+ss -tlnp | grep haproxy
+
+
+# ============================================================================
+# بخش 6: ساخت چندین تونل همزمان
+# ============================================================================
+
+# تونل 1: l2tpeth0 (tunnel_id=1000, session_id=10)
+ip l2tp add tunnel tunnel_id 1000 peer_tunnel_id 2000 encap ip local 1.2.3.4 remote 5.6.7.8
+ip l2tp add session tunnel_id 1000 session_id 10 peer_session_id 20
+ip link set l2tpeth0 up && ip addr add 10.30.30.1/30 dev l2tpeth0
+
+# تونل 2: l2tpeth1 (tunnel_id=1100, session_id=11)
+ip l2tp add tunnel tunnel_id 1100 peer_tunnel_id 2100 encap ip local 1.2.3.4 remote 6.7.8.9
+ip l2tp add session tunnel_id 1100 session_id 11 peer_session_id 21
+ip link set l2tpeth1 up && ip addr add 10.30.31.1/30 dev l2tpeth1
+
+# بررسی تمام تونل‌ها
+ip l2tp show tunnel && ip l2tp show session
+
+
+# ============================================================================
+# بخش 7: ایجاد سرویس systemd برای راه‌اندازی خودکار
+# ============================================================================
+
+# ایجاد اسکریپت راه‌اندازی تونل
+cat > /usr/local/bin/vortexl2-tunnel-setup.sh << 'EOF'
+#!/bin/bash
+modprobe l2tp_core l2tp_netlink l2tp_eth
+ip l2tp add tunnel tunnel_id 1000 peer_tunnel_id 2000 encap ip local 1.2.3.4 remote 5.6.7.8
+ip l2tp add session tunnel_id 1000 session_id 10 peer_session_id 20
+sleep 1 && ip link set l2tpeth0 up && ip addr add 10.30.30.1/30 dev l2tpeth0
+EOF
+
+chmod +x /usr/local/bin/vortexl2-tunnel-setup.sh
+
+# ایجاد سرویس systemd
+cat > /etc/systemd/system/vortexl2-tunnel.service << 'EOF'
+[Unit]
+Description=VortexL2 L2TPv3 Tunnel Setup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vortexl2-tunnel-setup.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# فعال‌سازی و راه‌اندازی سرویس
+systemctl daemon-reload && systemctl enable vortexl2-tunnel.service && systemctl start vortexl2-tunnel.service
+
+
+# ============================================================================
+# بخش 8: بررسی وضعیت و مانیتورینگ
+# ============================================================================
+
+# نمایش تونل‌ها و سشن‌ها
+ip l2tp show tunnel && ip l2tp show session
+
+# نمایش اینترفیس‌های تونل
+ip addr show | grep l2tpeth
+
+# تست اتصال
+ping -c 3 10.30.30.2
+
+# بررسی وضعیت HAProxy
+systemctl status haproxy && ss -tlnp | grep haproxy
+
+# مشاهده آمار HAProxy
+echo "show stat" | socat stdio /var/run/haproxy.sock
+
+# بررسی لاگ‌ها
+journalctl -u vortexl2-tunnel.service -n 20
+journalctl -u haproxy -n 20
+
+
+# ============================================================================
+# بخش 9: عیب‌یابی مشکلات رایج
+# ============================================================================
+
+# بررسی ماژول‌های کرنل
+lsmod | grep l2tp || (modprobe l2tp_core && modprobe l2tp_netlink && modprobe l2tp_eth)
+
+# بررسی فایروال
+iptables -L -n -v | grep 115 || nft list ruleset | grep 115
+
+# بررسی صحت تنظیمات HAProxy
+haproxy -c -f /etc/haproxy/haproxy.cfg
+
+# بررسی اتصال به IP ریموت
+ping -c 3 10.30.30.2 || echo "مشکل در اتصال تونل"
+
+# تست پورت ریموت
+nc -zv 10.30.30.2 443 || echo "پورت 443 در دسترس نیست"
+
+
+# ============================================================================
+# بخش 10: حذف تونل
+# ============================================================================
+
+# حذف سشن (ابتدا سشن، سپس تونل)
+ip l2tp del session tunnel_id 1000 session_id 10
+
+# حذف تونل
+ip l2tp del tunnel tunnel_id 1000
+
+# حذف IP از اینترفیس
+ip addr del 10.30.30.1/30 dev l2tpeth0 2>/dev/null
+
+# پایین آوردن اینترفیس
+ip link set l2tpeth0 down 2>/dev/null
+
+
+# ============================================================================
+# بخش 11: پاک‌سازی کامل و حذف تمام تنظیمات
+# ============================================================================
+
+# توقف سرویس‌ها
+systemctl stop vortexl2-tunnel.service haproxy 2>/dev/null
+systemctl disable vortexl2-tunnel.service haproxy 2>/dev/null
+
+# حذف تمام تونل‌ها (ابتدا تمام سشن‌ها، سپس تونل‌ها)
+for tid in $(ip l2tp show tunnel | grep -oP 'tunnel_id \K\d+'); do
+    for sid in $(ip l2tp show session | grep -oP "tunnel $tid.*session_id \K\d+"); do
+        ip l2tp del session tunnel_id $tid session_id $sid 2>/dev/null
+    done
+    ip l2tp del tunnel tunnel_id $tid 2>/dev/null
+done
+
+# حذف فایل‌های سرویس و پیکربندی
+rm -f /etc/systemd/system/vortexl2-tunnel.service
+rm -f /usr/local/bin/vortexl2-tunnel-setup.sh
+rm -rf /etc/vortexl2 /var/lib/vortexl2 /var/log/vortexl2
+rm -f /etc/modules-load.d/vortexl2.conf
+
+# بازگرداندن تنظیمات HAProxy
+[ -f /etc/haproxy/haproxy.cfg.bak ] && cp /etc/haproxy/haproxy.cfg.bak /etc/haproxy/haproxy.cfg
+
+# حذف قوانین فایروال
+iptables -D INPUT -p 115 -j ACCEPT 2>/dev/null
+iptables -D OUTPUT -p 115 -j ACCEPT 2>/dev/null
+nft delete table inet vortexl2_filter 2>/dev/null
+
+# بارگذاری مجدد systemd
+systemctl daemon-reload
+
+# بررسی نهایی
+echo "=== بررسی تونل‌ها ===" && ip l2tp show tunnel
+echo "=== بررسی اینترفیس‌ها ===" && ip link show | grep l2tpeth || echo "هیچ اینترفیس تونلی باقی نمانده است"
+
+
+# ============================================================================
+# نکات مهم:
+# ============================================================================
+# 1. تمام دستورات باید با دسترسی root (sudo) اجرا شوند
+# 2. مقادیر IP (1.2.3.4, 5.6.7.8) و شناسه‌ها (1000, 2000, 10, 20) را با مقادیر واقعی جایگزین کنید
+# 3. برای تونل‌های متعدد، از شناسه‌های منحصر به فرد استفاده کنید
+# 4. در سمت KHAREJ، مقادیر tunnel_id و session_id با IRAN جابجا می‌شوند
+# 5. قبل از حذف تونل، مطمئن شوید سرویس‌های وابسته متوقف شده‌اند
+# 6. L2TPv3 رمزنگاری ندارد - برای ترافیک حساس از IPsec یا WireGuard استفاده کنید

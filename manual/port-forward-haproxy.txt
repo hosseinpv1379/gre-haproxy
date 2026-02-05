@@ -1,0 +1,171 @@
+# آموزش Port Forward با HAProxy
+# این فایل تنها راه‌اندازی و مدیریت Port Forward با HAProxy را پوشش می‌دهد
+
+# ============================================================================
+# مسیرهای مهم
+# ============================================================================
+# کانفیگ اصلی: /etc/haproxy/haproxy.cfg
+# پشتیبان: /etc/haproxy/haproxy.cfg.bak
+# Socket آمار: /var/run/haproxy.sock
+
+# ============================================================================
+# 1. نصب HAProxy
+# ============================================================================
+apt-get update
+apt-get install -y haproxy
+
+# ============================================================================
+# 2. پشتیبان از کانفیگ فعلی
+# ============================================================================
+cp /etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg.bak
+
+# ============================================================================
+# 3. نوشتن کانفیگ Port Forward
+# ============================================================================
+# مقادیر زیر را با IP ریموت داخل تونل و پورت‌های مورد نظر عوض کنید.
+# مثال: فوروارد پورت‌های 443، 80، 2053 به 10.30.30.2
+
+cat > /etc/haproxy/haproxy.cfg << 'EOF'
+global
+    maxconn 10000
+    log stdout local0
+    chroot /var/lib/haproxy
+    stats socket /var/run/haproxy.sock mode 660 level admin
+    daemon
+
+defaults
+    log     global
+    mode    tcp
+    option  tcplog
+    timeout connect 5000
+    timeout client  50000
+    timeout server  50000
+
+backend tunnel_1111
+    mode tcp
+    server s1 10.10.10.2:1111 check
+
+frontend fe_1111
+    mode tcp
+    bind 0.0.0.0:1111
+    default_backend tunnel_1111
+
+backend tunnel_2222
+    mode tcp
+    server s1 10.10.10.2:2222 check
+
+frontend fe_2222
+    mode tcp
+    bind 0.0.0.0:2222
+    default_backend tunnel_2222
+
+backend tunnel_1010
+    mode tcp
+    server s1 10.10.10.2:1010 check
+
+frontend fe_1010
+    mode tcp
+    bind 0.0.0.0:1010
+    default_backend tunnel_1010
+
+backend tunnel_9999
+    mode tcp
+    server s1 10.10.10.2:9999 check
+
+frontend fe_9999
+    mode tcp
+    bind 0.0.0.0:9999
+    default_backend tunnel_9999
+
+backend tunnel_9090
+    mode tcp
+    server s1 10.10.10.2:9090 check
+
+frontend fe_9090
+    mode tcp
+    bind 0.0.0.0:9090
+    default_backend tunnel_9090
+
+backend tunnel_1212
+    mode tcp
+    server s1 10.10.10.2:1212 check
+
+frontend fe_1212
+    mode tcp
+    bind 0.0.0.0:1212
+    default_backend tunnel_1212
+
+backend tunnel_2020
+    mode tcp
+    server s1 10.10.10.2:2020 check
+
+frontend fe_2020
+    mode tcp
+    bind 0.0.0.0:2020
+    default_backend tunnel_2020
+EOF
+
+# ============================================================================
+# 4. تست و راه‌اندازی
+# ============================================================================
+# بررسی صحت کانفیگ
+haproxy -c -f /etc/haproxy/haproxy.cfg
+
+# راه‌اندازی سرویس
+systemctl start haproxy
+systemctl enable haproxy
+
+# یا اگر قبلاً اجرا بود، فقط reload
+systemctl reload haproxy
+
+# ============================================================================
+# 5. بررسی وضعیت
+# ============================================================================
+systemctl status haproxy
+ss -tlnp | grep haproxy
+echo "show stat" | socat stdio /var/run/haproxy.sock
+
+# ============================================================================
+# 6. اضافه کردن پورت جدید
+# ============================================================================
+# دو بلاک backend و frontend برای پورت جدید به انتهای فایل اضافه کنید، مثال برای 8080:
+
+# backend tunnel_8080
+#     mode tcp
+#     server s1 10.30.30.2:8080 check
+#
+# frontend fe_8080
+#     mode tcp
+#     bind 0.0.0.0:8080
+#     default_backend tunnel_8080
+
+# بعد از ویرایش:
+# haproxy -c -f /etc/haproxy/haproxy.cfg && systemctl reload haproxy
+
+# ============================================================================
+# 7. حذف یک پورت
+# ============================================================================
+# بلاک‌های backend و frontend آن پورت را از /etc/haproxy/haproxy.cfg حذف کنید، سپس:
+# haproxy -c -f /etc/haproxy/haproxy.cfg && systemctl reload haproxy
+
+# ============================================================================
+# 8. بازگردانی کانفیگ قبلی
+# ============================================================================
+# cp /etc/haproxy/haproxy.cfg.bak /etc/haproxy/haproxy.cfg
+# systemctl restart haproxy
+
+# ============================================================================
+# 9. عیب‌یابی
+# ============================================================================
+# کانفیگ اشتباه؟
+haproxy -c -f /etc/haproxy/haproxy.cfg
+
+# پورت باز نیست؟
+ss -tlnp | grep haproxy
+
+# اتصال به IP ریموت در تونل؟
+ping -c 2 10.30.30.2
+nc -zv 10.30.30.2 443
+
+# لاگ سرویس
+journalctl -u haproxy -n 50 -f

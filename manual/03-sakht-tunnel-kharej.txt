@@ -1,0 +1,35 @@
+# ساخت تونل L2TPv3 برای سمت KHAREJ
+# این فایل دستورات ساخت تونل در سمت KHAREJ را نشان می‌دهد
+# مقادیر tunnel_id و session_id باید با سمت IRAN جابجا شوند
+
+# مثال: ساخت تونل برای سمت KHAREJ
+# پارامترها (مقادیر با IRAN جابجا شده):
+# - tunnel_id: شناسه تونل محلی (2000 - معکوس IRAN)
+# - peer_tunnel_id: شناسه تونل ریموت (1000 - معکوس IRAN)
+# - local: IP عمومی سرور KHAREJ (مثلاً 5.6.7.8)
+# - remote: IP عمومی سرور IRAN (مثلاً 1.2.3.4)
+
+# مرحله 1: ساخت تونل L2TP
+ip l2tp add tunnel tunnel_id 2000 peer_tunnel_id 1000 encap ip local 5.6.7.8 remote 1.2.3.4
+
+# مرحله 2: ساخت سشن در تونل
+# مقادیر session_id با IRAN جابجا شده:
+# - tunnel_id: 2000
+# - session_id: 20 (معکوس IRAN که 10 بود)
+# - peer_session_id: 10 (معکوس IRAN که 20 بود)
+ip l2tp add session tunnel_id 2000 session_id 20 peer_session_id 10
+
+# مرحله 3: بالا آوردن اینترفیس تونل
+ip link set l2tpeth0 up
+
+# مرحله 4: اختصاص IP به اینترفیس تونل
+# برای سمت KHAREJ معمولاً 10.30.30.2/30 استفاده می‌شود
+ip addr add 10.30.30.2/30 dev l2tpeth0
+
+# بررسی وضعیت تونل
+ip l2tp show tunnel
+ip l2tp show session
+ip addr show l2tpeth0
+
+# تست اتصال از طریق تونل
+ping 10.30.30.1

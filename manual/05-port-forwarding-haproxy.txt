@@ -1,0 +1,94 @@
+# تنظیم Port Forwarding با HAProxy
+# این فایل دستورات تنظیم HAProxy برای فوروارد کردن پورت‌ها از طریق تونل را نشان می‌دهد
+# HAProxy برای فوروارد کردن ترافیک از پورت‌های محلی به IP ریموت در تونل استفاده می‌شود
+#
+# مسیرهای مهم:
+# - فایل کانفیگ اصلی: /etc/haproxy/haproxy.cfg
+# - فایل پشتیبان: /etc/haproxy/haproxy.cfg.bak
+# - Socket آمار: /var/run/haproxy.sock
+
+# مرحله 1: نصب HAProxy (اگر نصب نشده)
+apt-get install -y haproxy
+
+# مرحله 2: ایجاد پشتیبان از تنظیمات فعلی HAProxy
+cp /etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg.bak
+
+# مرحله 3: ایجاد فایل تنظیمات HAProxy
+# این مثال برای فوروارد کردن پورت‌های 443، 80 و 2053 به IP 10.30.30.2 در تونل است
+cat > /etc/haproxy/haproxy.cfg << 'EOF'
+global
+    maxconn 10000
+    log stdout local0
+    log stdout local1 notice
+    chroot /var/lib/haproxy
+    stats socket /var/run/haproxy.sock mode 660 level admin
+    stats timeout 30s
+    daemon
+
+defaults
+    log     global
+    mode    tcp
+    option  tcplog
+    option  dontlognull
+    option  redispatch
+    retries 3
+    timeout connect 5000
+    timeout client  50000
+    timeout server  50000
+
+# Backend برای پورت 443
+backend tunnel_backend_443
+    balance roundrobin
+    mode tcp
+    server remote_host_443 10.30.30.2:443 check
+    default-server inter 10s fall 3 rise 2
+
+# Frontend برای پورت 443
+frontend tunnel_port_443
+    mode tcp
+    bind 0.0.0.0:443
+    default_backend tunnel_backend_443
+
+# Backend برای پورت 80
+backend tunnel_backend_80
+    balance roundrobin
+    mode tcp
+    server remote_host_80 10.30.30.2:80 check
+    default-server inter 10s fall 3 rise 2
+
+# Frontend برای پورت 80
+frontend tunnel_port_80
+    mode tcp
+    bind 0.0.0.0:80
+    default_backend tunnel_backend_80
+
+# Backend برای پورت 2053
+backend tunnel_backend_2053
+    balance roundrobin
+    mode tcp
+    server remote_host_2053 10.30.30.2:2053 check
+    default-server inter 10s fall 3 rise 2
+
+# Frontend برای پورت 2053
+frontend tunnel_port_2053
+    mode tcp
+    bind 0.0.0.0:2053
+    default_backend tunnel_backend_2053
+EOF
+
+# مرحله 4: بررسی صحت تنظیمات HAProxy
+haproxy -c -f /etc/haproxy/haproxy.cfg
+
+# مرحله 5: راه‌اندازی یا reload کردن HAProxy
+systemctl start haproxy
+# یا اگر قبلاً در حال اجرا بود:
+systemctl reload haproxy
+
+# بررسی وضعیت HAProxy
+systemctl status haproxy
+
+# بررسی پورت‌های در حال گوش دادن
+ss -tlnp | grep haproxy
+
+# مشاهده آمار HAProxy
+echo "show stat" | socat stdio /var/run/haproxy.sock

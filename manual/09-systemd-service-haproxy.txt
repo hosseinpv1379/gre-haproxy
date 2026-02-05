@@ -1,0 +1,26 @@
+# ایجاد سرویس systemd برای HAProxy
+# این فایل دستورات تنظیم سرویس systemd برای HAProxy را نشان می‌دهد
+
+# مرحله 1: فعال کردن سرویس HAProxy برای بوت
+systemctl enable haproxy
+
+# مرحله 2: راه‌اندازی سرویس HAProxy
+systemctl start haproxy
+
+# بررسی وضعیت سرویس
+systemctl status haproxy
+
+# مشاهده لاگ‌های HAProxy
+journalctl -u haproxy -f
+
+# Reload کردن HAProxy بدون قطع اتصال
+systemctl reload haproxy
+
+# راه‌اندازی مجدد HAProxy
+systemctl restart haproxy
+
+# توقف HAProxy
+systemctl stop haproxy
+
+# غیرفعال کردن سرویس از بوت
+systemctl disable haproxy

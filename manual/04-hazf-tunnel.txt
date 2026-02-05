@@ -1,0 +1,20 @@
+# حذف تونل L2TPv3
+# این فایل دستورات حذف تونل و سشن را نشان می‌دهد
+# توجه: ابتدا باید سشن حذف شود، سپس تونل
+
+# مرحله 1: حذف سشن
+# پارامترها: tunnel_id و session_id تونل مورد نظر
+ip l2tp del session tunnel_id 1000 session_id 10
+
+# مرحله 2: حذف تونل
+ip l2tp del tunnel tunnel_id 1000
+
+# بررسی اینکه تونل حذف شده است
+ip l2tp show tunnel
+ip l2tp show session
+
+# اگر IP به اینترفیس اختصاص داده شده بود، می‌توانید آن را حذف کنید
+ip addr del 10.30.30.1/30 dev l2tpeth0
+
+# پایین آوردن اینترفیس (اختیاری)
+ip link set l2tpeth0 down

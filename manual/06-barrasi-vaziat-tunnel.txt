@@ -1,0 +1,48 @@
+# بررسی وضعیت تونل‌ها و اتصالات
+# این فایل دستورات بررسی وضعیت تونل‌های L2TP و پورت فورواردینگ را نشان می‌دهد
+
+# نمایش تمام تونل‌های L2TP
+ip l2tp show tunnel
+
+# نمایش تمام سشن‌های L2TP
+ip l2tp show session
+
+# نمایش اطلاعات اینترفیس تونل (مثلاً l2tpeth0)
+ip addr show l2tpeth0
+
+# نمایش اطلاعات کامل اینترفیس شامل آمار ترافیک
+ip -s link show l2tpeth0
+
+# نمایش جدول مسیریابی (برای بررسی مسیرهای تونل)
+ip route show
+
+# تست اتصال از طریق تونل
+ping 10.30.30.2
+
+# تست اتصال با traceroute
+traceroute 10.30.30.2
+
+# بررسی ماژول‌های L2TP لود شده
+lsmod | grep l2tp
+
+# بررسی وضعیت سرویس HAProxy
+systemctl status haproxy
+
+# نمایش پورت‌های در حال گوش دادن HAProxy
+ss -tlnp | grep haproxy
+
+# نمایش آمار HAProxy
+echo "show stat" | socat stdio /var/run/haproxy.sock
+
+# نمایش اطلاعات جلسات فعال HAProxy
+echo "show sess" | socat stdio /var/run/haproxy.sock
+
+# بررسی لاگ‌های HAProxy
+journalctl -u haproxy -f
+
+# بررسی لاگ‌های کرنل مربوط به L2TP
+dmesg | grep l2tp
+
+# نمایش اطلاعات کامل شبکه
+ip addr show
+ip link show

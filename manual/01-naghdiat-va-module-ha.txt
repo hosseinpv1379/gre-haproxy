@@ -1,0 +1,25 @@
+# نصب پیش‌نیازها و ماژول‌های کرنل
+# این فایل دستورات نصب پکیج‌های مورد نیاز و لود کردن ماژول‌های L2TP را نشان می‌دهد
+
+# به‌روزرسانی لیست پکیج‌ها
+apt-get update
+
+# نصب پکیج‌های پایه
+apt-get install -y python3 python3-pip python3-venv git iproute2 haproxy
+
+# نصب ماژول‌های اضافی کرنل برای نسخه فعلی کرنل
+KERNEL_VERSION=$(uname -r)
+apt-get install -y linux-modules-extra-${KERNEL_VERSION}
+
+# لود کردن ماژول‌های L2TP
+modprobe l2tp_core
+modprobe l2tp_netlink
+modprobe l2tp_eth
+
+# بررسی اینکه ماژول‌ها لود شده‌اند
+lsmod | grep l2tp
+
+# برای لود شدن خودکار ماژول‌ها در بوت، ایجاد فایل modules-load
+echo "l2tp_core" > /etc/modules-load.d/vortexl2.conf
+echo "l2tp_netlink" >> /etc/modules-load.d/vortexl2.conf
+echo "l2tp_eth" >> /etc/modules-load.d/vortexl2.conf

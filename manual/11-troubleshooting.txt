@@ -1,0 +1,113 @@
+# عیب‌یابی و حل مشکلات
+# این فایل دستورات عیب‌یابی مشکلات رایج را نشان می‌دهد
+
+# مشکل 1: تونل ایجاد نمی‌شود
+# بررسی ماژول‌های کرنل
+lsmod | grep l2tp
+
+# اگر ماژول‌ها لود نشده‌اند:
+modprobe l2tp_core
+modprobe l2tp_netlink
+modprobe l2tp_eth
+
+# بررسی لاگ‌های کرنل
+dmesg | grep l2tp
+journalctl -k | grep l2tp
+
+# مشکل 2: اینترفیس l2tpeth0 ایجاد نمی‌شود
+# بررسی اینکه سشن ایجاد شده است
+ip l2tp show session
+
+# اگر سشن وجود ندارد، ابتدا تونل را بررسی کنید
+ip l2tp show tunnel
+
+# سپس سشن را ایجاد کنید
+ip l2tp add session tunnel_id 1000 session_id 10 peer_session_id 20
+
+# صبر کنید و دوباره بررسی کنید
+sleep 2
+ip link show
+
+# مشکل 3: اتصال از طریق تونل برقرار نمی‌شود
+# بررسی IP اختصاص داده شده
+ip addr show l2tpeth0
+
+# بررسی اینکه اینترفیس UP است
+ip link show l2tpeth0
+
+# اگر DOWN است:
+ip link set l2tpeth0 up
+
+# تست ping
+ping 10.30.30.2
+
+# بررسی مسیریابی
+ip route show
+
+# بررسی فایروال
+iptables -L -n -v | grep 115
+# یا
+nft list ruleset | grep 115
+
+# مشکل 4: Port Forwarding کار نمی‌کند
+# بررسی وضعیت HAProxy
+systemctl status haproxy
+
+# بررسی پورت‌های در حال گوش دادن
+ss -tlnp | grep haproxy
+
+# بررسی تنظیمات HAProxy
+haproxy -c -f /etc/haproxy/haproxy.cfg
+
+# بررسی لاگ‌های HAProxy
+journalctl -u haproxy -n 50
+
+# بررسی اینکه IP ریموت قابل دسترسی است
+ping 10.30.30.2
+
+# تست اتصال مستقیم به پورت ریموت
+telnet 10.30.30.2 443
+# یا
+nc -zv 10.30.30.2 443
+
+# مشکل 5: تونل بعد از ریستارت از بین می‌رود
+# بررسی سرویس systemd
+systemctl status vortexl2-tunnel.service
+
+# بررسی اینکه سرویس فعال است
+systemctl is-enabled vortexl2-tunnel.service
+
+# اگر فعال نیست:
+systemctl enable vortexl2-tunnel.service
+
+# بررسی ماژول‌های لود شده در بوت
+cat /etc/modules-load.d/vortexl2.conf
+
+# مشکل 6: شناسه تونل تکراری
+# نمایش تمام تونل‌های موجود
+ip l2tp show tunnel
+
+# اگر tunnel_id تکراری است، از شناسه دیگری استفاده کنید
+# مثلاً به جای 1000 از 1001 استفاده کنید
+
+# مشکل 7: خطای "RTNETLINK answers: File exists"
+# این خطا یعنی تونل یا سشن قبلاً ایجاد شده است
+# ابتدا بررسی کنید:
+ip l2tp show tunnel
+ip l2tp show session
+
+# اگر وجود دارد، ابتدا حذف کنید:
+ip l2tp del session tunnel_id 1000 session_id 10
+ip l2tp del tunnel tunnel_id 1000
+
+# سپس دوباره ایجاد کنید
+
+# مشکل 8: HAProxy نمی‌تواند به IP ریموت متصل شود
+# بررسی اتصال از طریق تونل
+ping 10.30.30.2
+
+# بررسی اینکه IP در تنظیمات HAProxy درست است
+grep "server remote" /etc/haproxy/haproxy.cfg
+
+# بررسی لاگ‌های HAProxy برای خطاهای اتصال
+journalctl -u haproxy | grep -i error

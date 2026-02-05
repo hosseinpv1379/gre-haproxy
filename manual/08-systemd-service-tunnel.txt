@@ -1,0 +1,63 @@
+# ایجاد سرویس systemd برای تونل L2TP
+# این فایل دستورات ایجاد سرویس systemd برای راه‌اندازی خودکار تونل در بوت را نشان می‌دهد
+
+# مرحله 1: ایجاد اسکریپت برای راه‌اندازی تونل
+# این اسکریپت دستورات ساخت تونل را اجرا می‌کند
+cat > /usr/local/bin/vortexl2-tunnel-setup.sh << 'EOF'
+#!/bin/bash
+# راه‌اندازی تونل L2TP
+
+# لود کردن ماژول‌ها
+modprobe l2tp_core
+modprobe l2tp_netlink
+modprobe l2tp_eth
+
+# ساخت تونل (مقادیر را با مقادیر واقعی خود جایگزین کنید)
+ip l2tp add tunnel tunnel_id 1000 peer_tunnel_id 2000 encap ip local 1.2.3.4 remote 5.6.7.8
+
+# ساخت سشن
+ip l2tp add session tunnel_id 1000 session_id 10 peer_session_id 20
+
+# بالا آوردن اینترفیس
+sleep 1
+ip link set l2tpeth0 up
+
+# اختصاص IP
+ip addr add 10.30.30.1/30 dev l2tpeth0
+EOF
+
+# دادن مجوز اجرا به اسکریپت
+chmod +x /usr/local/bin/vortexl2-tunnel-setup.sh
+
+# مرحله 2: ایجاد فایل سرویس systemd
+cat > /etc/systemd/system/vortexl2-tunnel.service << 'EOF'
+[Unit]
+Description=VortexL2 L2TPv3 Tunnel Setup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vortexl2-tunnel-setup.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# مرحله 3: بارگذاری مجدد systemd
+systemctl daemon-reload
+
+# مرحله 4: فعال کردن سرویس برای بوت
+systemctl enable vortexl2-tunnel.service
+
+# مرحله 5: راه‌اندازی سرویس
+systemctl start vortexl2-tunnel.service
+
+# بررسی وضعیت سرویس
+systemctl status vortexl2-tunnel.service
+
+# مشاهده لاگ‌های سرویس
+journalctl -u vortexl2-tunnel.service -f
