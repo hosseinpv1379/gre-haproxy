@@ -5,7 +5,7 @@ Set up **multiple IRAN servers** → **one KHAREJ server** over GRE tunnels with
 ## Quick run (one-liner)
 
 ```bash
-sudo bash <(curl -sSL https://raw.githubusercontent.com/hosseinpv1379/VortexL2/main/manual/setup-gre-haproxy.sh)
+sudo bash <(curl -sSL https://raw.githubusercontent.com/hosseinpv1379/gre-haproxy/main/setup-gre-haproxy.sh)
 ```
 
 - Run on **KHAREJ** once: choose side 2, enter number of IRAN servers and each IRAN public IP.
@@ -15,9 +15,9 @@ sudo bash <(curl -sSL https://raw.githubusercontent.com/hosseinpv1379/VortexL2/m
 
 | Link | Description |
 |------|-------------|
-| [setup-gre-haproxy.sh](https://github.com/hosseinpv1379/gre-haproxy/blob/main/manual/setup-gre-haproxy.sh) | Main setup script |
-| [Raw script (direct run)](https://raw.githubusercontent.com/hosseinpv1379/gre-haproxy/main/manual/setup-gre-haproxy.sh) | Direct download URL |
-| [Manual / full guide](manual/README.md) | Subnets, usage, and troubleshooting |
+| [setup-gre-haproxy.sh](https://github.com/hosseinpv1379/gre-haproxy/blob/main/setup-gre-haproxy.sh) | Main setup script |
+| [Raw script (direct run)](https://raw.githubusercontent.com/hosseinpv1379/gre-haproxy/main/setup-gre-haproxy.sh) | Direct download URL |
+| [Full guide](README.md#quick-run-one-liner) | This README |
 
 ## Requirements
 
