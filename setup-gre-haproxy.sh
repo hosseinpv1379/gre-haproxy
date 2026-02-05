@@ -553,30 +553,47 @@ if [ "$SIDE" = "gost" ]; then
             exit 1
         fi
 
-        # Try Let's Encrypt (certbot); port 80 must be free
+        # Let's Encrypt (certbot); port 80 must be free and reachable
         if ! command -v certbot &>/dev/null; then
             echo -e "  ${YELLOW}Installing certbot...${NC}"
             apt-get update -qq 2>/dev/null
             apt-get install -y certbot 2>/dev/null || true
         fi
-        if command -v certbot &>/dev/null; then
-            echo -e "  ${YELLOW}Freeing port 80 for certificate validation...${NC}"
-            systemctl stop gost-gre 2>/dev/null || true
-            systemctl stop haproxy 2>/dev/null || true
-            sleep 2
-            if certbot certonly --standalone -d "$GOST_DOMAIN" --non-interactive --agree-tos --register-unsafe-email 2>/dev/null; then
-                CERT_FILE="/etc/letsencrypt/live/$GOST_DOMAIN/fullchain.pem"
-                KEY_FILE="/etc/letsencrypt/live/$GOST_DOMAIN/privkey.pem"
-                echo -e "  ${GREEN}Certificate obtained for ${CYAN}$GOST_DOMAIN${NC}"
-                systemctl start haproxy 2>/dev/null || true
-            else
-                echo -e "  ${RED}Certbot failed. Ensure DNS for $GOST_DOMAIN points to this server and port 80 is reachable.${NC}"
-                exit 1
-            fi
-        else
-            echo -e "  ${RED}Could not install certbot. Install it manually (apt install certbot) and re-run.${NC}"
+        if ! command -v certbot &>/dev/null; then
+            echo -e "  ${RED}Could not install certbot. Install manually: apt install certbot${NC}"
             exit 1
         fi
+
+        echo -e "  ${YELLOW}Freeing port 80 for certificate validation...${NC}"
+        systemctl stop gost-gre 2>/dev/null || true
+        systemctl stop haproxy 2>/dev/null || true
+        for s in nginx apache2 httpd; do systemctl stop "$s" 2>/dev/null || true; done
+        sleep 3
+        if ss -tlnp 2>/dev/null | grep -q ':80 '; then
+            echo -e "  ${YELLOW}Warning: port 80 still in use. Trying certbot anyway...${NC}"
+            ss -tlnp 2>/dev/null | grep ':80 ' || true
+        fi
+
+        CERTBOT_OUT=$(mktemp)
+        CERTBOT_ERR=$(mktemp)
+        trap "rm -f $CERTBOT_OUT $CERTBOT_ERR" EXIT
+        if certbot certonly --standalone -d "$GOST_DOMAIN" \
+            --non-interactive --agree-tos --register-unsafely-without-email \
+            </dev/null >"$CERTBOT_OUT" 2>"$CERTBOT_ERR"; then
+            CERT_FILE="/etc/letsencrypt/live/$GOST_DOMAIN/fullchain.pem"
+            KEY_FILE="/etc/letsencrypt/live/$GOST_DOMAIN/privkey.pem"
+            echo -e "  ${GREEN}Certificate obtained for ${CYAN}$GOST_DOMAIN${NC}"
+        else
+            echo -e "  ${RED}Certbot failed for $GOST_DOMAIN${NC}"
+            echo -e "  ${YELLOW}Certbot output:${NC}"
+            cat "$CERTBOT_ERR" | head -50
+            echo ""
+            echo -e "  ${DIM}Ensure DNS points to this server and port 80 is reachable from the internet.${NC}"
+            systemctl start haproxy 2>/dev/null || true
+            exit 1
+        fi
+        systemctl start haproxy 2>/dev/null || true
+        for s in nginx apache2 httpd; do systemctl start "$s" 2>/dev/null || true; done
     fi
 
     # Load existing ports if re-running
