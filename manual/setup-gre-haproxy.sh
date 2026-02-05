@@ -12,10 +12,12 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-CONFIG_FILE="/etc/vortexl2-gre.conf"
+CONFIG_FILE="/etc/gre-haproxy.conf"
 RCLOCAL="/etc/rc.local"
-GRE_MARKER_START="# VortexL2 GRE tunnels start"
-GRE_MARKER_END="# VortexL2 GRE tunnels end"
+GRE_MARKER_START="# gre-haproxy tunnels start"
+GRE_MARKER_END="# gre-haproxy tunnels end"
+TUNNEL_IFACE_IRAN="gre-haproxy"
+TUNNEL_IFACE_KHAREJ_PREFIX="gre-haproxy"
 
 # Subnet for tunnel index i: 10.10.(10*i).0/30 -> Iran .1, Kharej .2
 tunnel_iran_ip() { echo "10.10.$((10 * $1)).1"; }
@@ -92,25 +94,27 @@ if [ "$SIDE" = "kharej" ]; then
         IRAN_IPS+=("$ip")
     done
 
-    # Remove existing GRE interfaces used by us (gre1, gre2, ...)
+    # Remove existing GRE interfaces used by us (gre-haproxy1, gre-haproxy2, ...)
     for i in $(seq 1 "$N_IRAN"); do
-        if ip link show "gre$i" &>/dev/null; then
-            echo -e "${YELLOW}Removing existing gre$i...${NC}"
-            ip link set "gre$i" down 2>/dev/null || true
-            ip tunnel del "gre$i" 2>/dev/null || true
+        iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${i}"
+        if ip link show "$iface" &>/dev/null; then
+            echo -e "${YELLOW}Removing existing $iface...${NC}"
+            ip link set "$iface" down 2>/dev/null || true
+            ip tunnel del "$iface" 2>/dev/null || true
         fi
     done
 
     echo ""
     echo -e "${GREEN}Creating $N_IRAN GRE tunnel(s) on KHAREJ...${NC}"
     for i in $(seq 1 "$N_IRAN"); do
+        iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${i}"
         iran_ip="${IRAN_IPS[$((i-1))]}"
         kcidr=$(tunnel_kharej_cidr "$i")
-        ip tunnel add "gre$i" mode gre local "$KHAREJ_IP" remote "$iran_ip" ttl 255
-        ip addr add "$kcidr" dev "gre$i"
-        ip link set "gre$i" mtu 1436
-        ip link set "gre$i" up
-        echo -e "  ${GREEN}gre$i: local $KHAREJ_IP remote $iran_ip -> $kcidr${NC}"
+        ip tunnel add "$iface" mode gre local "$KHAREJ_IP" remote "$iran_ip" ttl 255
+        ip addr add "$kcidr" dev "$iface"
+        ip link set "$iface" mtu 1436
+        ip link set "$iface" up
+        echo -e "  ${GREEN}$iface: local $KHAREJ_IP remote $iran_ip -> $kcidr${NC}"
     done
 
     # Save state for possible "add tunnel" later
@@ -134,12 +138,13 @@ if [ "$SIDE" = "kharej" ]; then
         echo ""
         echo "$GRE_MARKER_START"
         for i in $(seq 1 "$N_IRAN"); do
+            iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${i}"
             iran_ip="${IRAN_IPS[$((i-1))]}"
             kcidr=$(tunnel_kharej_cidr "$i")
-            echo "ip tunnel add gre$i mode gre local $KHAREJ_IP remote $iran_ip ttl 255"
-            echo "ip addr add $kcidr dev gre$i"
-            echo "ip link set gre$i mtu 1436"
-            echo "ip link set gre$i up"
+            echo "ip tunnel add $iface mode gre local $KHAREJ_IP remote $iran_ip ttl 255"
+            echo "ip addr add $kcidr dev $iface"
+            echo "ip link set $iface mtu 1436"
+            echo "ip link set $iface up"
         done
         echo "$GRE_MARKER_END"
         echo ""
@@ -147,7 +152,7 @@ if [ "$SIDE" = "kharej" ]; then
     } >> "$RCLOCAL"
     echo -e "${GREEN}Tunnel commands written to $RCLOCAL${NC}"
     echo ""
-    echo -e "Tunnels: ${CYAN}ip addr show | grep gre${NC}"
+    echo -e "Tunnels: ${CYAN}ip addr show | grep $TUNNEL_IFACE_KHAREJ_PREFIX${NC}"
     echo -e "From each IRAN #i: ${CYAN}ping $(tunnel_kharej_ip 1)${NC} (or .20.2, .30.2, ...)"
     echo -e "If rc.local does not run on boot: ${CYAN}systemctl enable rc-local${NC}"
     exit 0
@@ -179,11 +184,11 @@ if [ -z "$IRAN_IP" ] || [ -z "$KHAREJ_IP" ]; then
     exit 1
 fi
 
-# This IRAN uses gre1 only (one tunnel per Iran server)
-if ip tunnel show gre1 &>/dev/null; then
-    echo -e "${YELLOW}Removing existing gre1...${NC}"
-    ip link set gre1 down 2>/dev/null || true
-    ip tunnel del gre1 2>/dev/null || true
+# This IRAN uses single tunnel interface gre-haproxy
+if ip tunnel show "$TUNNEL_IFACE_IRAN" &>/dev/null; then
+    echo -e "${YELLOW}Removing existing $TUNNEL_IFACE_IRAN...${NC}"
+    ip link set "$TUNNEL_IFACE_IRAN" down 2>/dev/null || true
+    ip tunnel del "$TUNNEL_IFACE_IRAN" 2>/dev/null || true
 fi
 
 MY_CIDR=$(tunnel_cidr "$IRAN_INDEX")
@@ -191,12 +196,12 @@ BACKEND_IP=$(tunnel_kharej_ip "$IRAN_INDEX")
 
 echo ""
 echo -e "${GREEN}Creating GRE tunnel (IRAN #$IRAN_INDEX -> $BACKEND_IP)...${NC}"
-ip tunnel add gre1 mode gre local "$IRAN_IP" remote "$KHAREJ_IP" ttl 255
-ip addr add "$MY_CIDR" dev gre1
-ip link set gre1 mtu 1436
-ip link set gre1 up
+ip tunnel add "$TUNNEL_IFACE_IRAN" mode gre local "$IRAN_IP" remote "$KHAREJ_IP" ttl 255
+ip addr add "$MY_CIDR" dev "$TUNNEL_IFACE_IRAN"
+ip link set "$TUNNEL_IFACE_IRAN" mtu 1436
+ip link set "$TUNNEL_IFACE_IRAN" up
 echo -e "${GREEN}Tunnel created: this IRAN $MY_CIDR, backend (KHAREJ) $BACKEND_IP${NC}"
-ip addr show gre1
+ip addr show "$TUNNEL_IFACE_IRAN"
 echo ""
 
 # rc.local for this Iran (single tunnel)
@@ -212,10 +217,10 @@ sed -i '/^exit 0$/d' "$RCLOCAL" 2>/dev/null || true
 {
     echo ""
     echo "$GRE_MARKER_START"
-    echo "ip tunnel add gre1 mode gre local $IRAN_IP remote $KHAREJ_IP ttl 255"
-    echo "ip addr add $MY_CIDR dev gre1"
-    echo "ip link set gre1 mtu 1436"
-    echo "ip link set gre1 up"
+    echo "ip tunnel add $TUNNEL_IFACE_IRAN mode gre local $IRAN_IP remote $KHAREJ_IP ttl 255"
+    echo "ip addr add $MY_CIDR dev $TUNNEL_IFACE_IRAN"
+    echo "ip link set $TUNNEL_IFACE_IRAN mtu 1436"
+    echo "ip link set $TUNNEL_IFACE_IRAN up"
     echo "$GRE_MARKER_END"
     echo ""
     echo "exit 0"
@@ -296,7 +301,7 @@ echo -e "${GREEN}============================================${NC}"
 echo -e "${GREEN}  Done.${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo ""
-echo -e "Tunnel: ${CYAN}ip addr show gre1${NC}"
+echo -e "Tunnel: ${CYAN}ip addr show $TUNNEL_IFACE_IRAN${NC}"
 echo -e "Test: ${CYAN}ping $BACKEND_IP${NC}"
 echo -e "HAProxy: ${CYAN}systemctl status haproxy${NC}"
 echo -e "If rc.local does not run on boot: ${CYAN}systemctl enable rc-local${NC}"

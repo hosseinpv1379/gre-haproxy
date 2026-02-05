@@ -12,25 +12,25 @@ Interactive script to set up **multiple IRAN servers** connecting to **one KHARE
   IRAN #3 (gre1)  ----/
 ```
 
-- **KHAREJ**: One server with multiple GRE interfaces (`gre1`, `gre2`, `gre3`, ...). Each `greN` goes to one IRAN and uses a dedicated /30 subnet.
-- **IRAN**: Each IRAN server has a single `gre1` to KHAREJ and uses one /30 subnet. No overlap between IRANs.
+- **KHAREJ**: One server with multiple GRE interfaces (`gre-haproxy1`, `gre-haproxy2`, `gre-haproxy3`, ...). Each goes to one IRAN and uses a dedicated /30 subnet.
+- **IRAN**: Each IRAN server has a single tunnel interface `gre-haproxy` to KHAREJ and uses one /30 subnet. No overlap between IRANs.
 
 ## Subnets (no conflicts)
 
-| IRAN index | Subnet        | IRAN side   | KHAREJ side  | KHAREJ iface |
-|------------|---------------|-------------|--------------|--------------|
-| 1          | 10.10.10.0/30 | 10.10.10.1  | 10.10.10.2   | gre1         |
-| 2          | 10.10.20.0/30 | 10.10.20.1  | 10.10.20.2   | gre2         |
-| 3          | 10.10.30.0/30 | 10.10.30.1  | 10.10.30.2   | gre3         |
-| ...        | 10.10.(10*i).0/30 | .1     | .2           | gre(i)       |
+| IRAN index | Subnet        | IRAN side   | KHAREJ side  | KHAREJ iface   |
+|------------|---------------|-------------|--------------|----------------|
+| 1          | 10.10.10.0/30 | 10.10.10.1  | 10.10.10.2   | gre-haproxy1  |
+| 2          | 10.10.20.0/30 | 10.10.20.1  | 10.10.20.2   | gre-haproxy2  |
+| 3          | 10.10.30.0/30 | 10.10.30.1  | 10.10.30.2   | gre-haproxy3  |
+| ...        | 10.10.(10*i).0/30 | .1     | .2           | gre-haproxy(i)|
 
 So you can run many IRANs against one KHAREJ without route or address clashes.
 
 ## What the script does
 
 - Detects and shows this server’s public IP and asks whether to use it.
-- **KHAREJ**: Asks how many IRAN servers (N), then asks each IRAN’s public IP. Creates `gre1`..`greN` with the subnets above and writes all tunnel bring-up commands to `rc.local`. Saves state to `/etc/vortexl2-gre.conf`.
-- **IRAN**: Asks “IRAN index” (1, 2, 3, ...) so it uses the correct subnet. Creates one `gre1` to KHAREJ, adds bring-up to `rc.local`. Then (optional) asks for HAProxy ports and configures HAProxy to forward to the KHAREJ side of this tunnel (e.g. 10.10.20.2 for IRAN #2).
+- **KHAREJ**: Asks how many IRAN servers (N), then asks each IRAN’s public IP. Creates `gre-haproxy1`..`gre-haproxyN` with the subnets above and writes all tunnel bring-up commands to `rc.local`. Saves state to `/etc/gre-haproxy.conf`.
+- **IRAN**: Asks “IRAN index” (1, 2, 3, ...) so it uses the correct subnet. Creates one tunnel `gre-haproxy` to KHAREJ, adds bring-up to `rc.local`. Then (optional) asks for HAProxy ports and configures HAProxy to forward to the KHAREJ side of this tunnel (e.g. 10.10.20.2 for IRAN #2).
 
 ## Requirements
 
@@ -52,7 +52,7 @@ sudo ./setup-gre-haproxy.sh
 - Enter **number of IRAN servers** (e.g. 3).
 - Enter **public IP of IRAN #1, #2, #3** (in order).
 
-The script creates `gre1`, `gre2`, `gre3` and writes all of them to `rc.local`.
+The script creates `gre-haproxy1`, `gre-haproxy2`, `gre-haproxy3` and writes all of them to `rc.local`.
 
 ### 2. On each IRAN server
 
@@ -68,7 +68,7 @@ sudo ./setup-gre-haproxy.sh
 - Enter KHAREJ public IP.
 - Optionally enter HAProxy ports (e.g. `443=9321,80=8080`).
 
-Each IRAN gets one `gre1` and its own subnet; HAProxy on that IRAN forwards to the corresponding KHAREJ IP (e.g. 10.10.20.2 for index 2).
+Each IRAN gets one tunnel interface `gre-haproxy` and its own subnet; HAProxy on that IRAN forwards to the corresponding KHAREJ IP (e.g. 10.10.20.2 for index 2).
 
 ## Port format (IRAN side)
 
@@ -87,7 +87,7 @@ Backend is always the KHAREJ side of that IRAN’s tunnel (e.g. 10.10.20.2 for I
 |------|-------------|
 | `setup-gre-haproxy.sh` | Main script (multi-IRAN, one KHAREJ) |
 | `port-forward-haproxy.txt` | Manual HAProxy reference |
-| `/etc/vortexl2-gre.conf` | KHAREJ: saved list of IRAN IPs (used if you extend the script later) |
+| `/etc/gre-haproxy.conf` | KHAREJ: saved list of IRAN IPs (used if you extend the script later) |
 
 ## rc.local and boot
 
@@ -101,8 +101,8 @@ sudo systemctl enable rc.local
 
 ## Checks after setup
 
-- **KHAREJ**: `ip addr show | grep gre` (see gre1, gre2, …). Ping from IRAN: `ping 10.10.10.2` (or .20.2, .30.2 for IRAN 2, 3).
-- **IRAN**: `ip addr show gre1`, `ping 10.10.x.2` (x = 10, 20, 30 for index 1, 2, 3).
+- **KHAREJ**: `ip addr show | grep gre-haproxy` (see gre-haproxy1, gre-haproxy2, …). Ping from IRAN: `ping 10.10.10.2` (or .20.2, .30.2 for IRAN 2, 3).
+- **IRAN**: `ip addr show gre-haproxy`, `ping 10.10.x.2` (x = 10, 20, 30 for index 1, 2, 3).
 - **HAProxy (each IRAN)**: `systemctl status haproxy`, `ss -tlnp | grep haproxy`.
 
 ## HAProxy config
