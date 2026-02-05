@@ -17,7 +17,7 @@ sudo bash <(curl -sSL https://raw.githubusercontent.com/hosseinpv1379/gre-haprox
 |------|-------------|
 | [setup-gre-haproxy.sh](https://github.com/hosseinpv1379/gre-haproxy/blob/main/setup-gre-haproxy.sh) | Main setup script |
 | [Raw script (direct run)](https://raw.githubusercontent.com/hosseinpv1379/gre-haproxy/main/setup-gre-haproxy.sh) | Direct download URL |
-| [Full guide](README.md#quick-run-one-liner) | This README |
+| [Extended guide](manual/README.md) | Subnets, usage, troubleshooting |
 
 ## Requirements
 
