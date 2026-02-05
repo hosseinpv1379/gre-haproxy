@@ -168,7 +168,8 @@ EOF
             systemctl disable gost-gre 2>/dev/null || true
             rm -f /etc/systemd/system/gost-gre.service
             systemctl daemon-reload 2>/dev/null || true
-            echo -e "  ${GREEN}Done.${NC} GOST service stopped and removed."
+            rm -rf /etc/gost-gre
+            echo -e "  ${GREEN}Done.${NC} GOST service, config and local certs removed."
         fi
     fi
 
@@ -540,18 +541,65 @@ if [ "$SIDE" = "gost" ]; then
         *) GOST_MODE="tls";;
     esac
 
-    # For tls/wss/http2 ensure self-signed cert exists
+    # For tls/wss/http2: get cert — either real (one domain) or self-signed
+    CERT_FILE=""
+    KEY_FILE=""
     if [ "$GOST_MODE" != "tcp" ]; then
-        mkdir -p "$GOST_DIR"
-        CERT_FILE="$GOST_DIR/cert.pem"
-        KEY_FILE="$GOST_DIR/key.pem"
-        if [ ! -f "$KEY_FILE" ] || [ ! -f "$CERT_FILE" ]; then
+        echo ""
+        echo -e "  ${BOLD}Certificate for TLS:${NC}"
+        echo -e "  ${CYAN}  |${NC}  ${GREEN}s${NC}) Self-signed (quick, no domain needed)"
+        echo -e "  ${CYAN}  |${NC}  ${GREEN}d${NC}) Real certificate (Let's Encrypt) — enter one domain"
+        echo -e "  ${CYAN}  +------------------------------------------------------------------${NC}"
+        read -p "  Choice (s/d) [default s]: " cert_choice
+        cert_choice="${cert_choice:-s}"
+
+        if [[ "$cert_choice" =~ ^[dD] ]]; then
+            read -p "  Enter domain (e.g. tunnel.example.com): " GOST_DOMAIN
+            GOST_DOMAIN=$(echo "$GOST_DOMAIN" | tr -d ' ')
+            if [ -z "$GOST_DOMAIN" ]; then
+                echo -e "  ${YELLOW}No domain given. Using self-signed.${NC}"
+                cert_choice="s"
+            fi
+        fi
+
+        if [[ "$cert_choice" =~ ^[dD] ]] && [ -n "$GOST_DOMAIN" ]; then
+            # Real cert: certbot (port 80 must be free)
+            if ! command -v certbot &>/dev/null; then
+                echo -e "  ${YELLOW}Installing certbot...${NC}"
+                apt-get update -qq 2>/dev/null
+                apt-get install -y certbot 2>/dev/null || true
+                if ! command -v certbot &>/dev/null; then
+                    echo -e "  ${RED}Could not install certbot. Using self-signed.${NC}"
+                    cert_choice="s"
+                fi
+            fi
+            if command -v certbot &>/dev/null && [ -n "$GOST_DOMAIN" ]; then
+                echo -e "  ${YELLOW}Freeing port 80 for certificate validation...${NC}"
+                systemctl stop gost-gre 2>/dev/null || true
+                systemctl stop haproxy 2>/dev/null || true
+                sleep 2
+                if certbot certonly --standalone -d "$GOST_DOMAIN" --non-interactive --agree-tos --register-unsafe-email 2>/dev/null; then
+                    CERT_FILE="/etc/letsencrypt/live/$GOST_DOMAIN/fullchain.pem"
+                    KEY_FILE="/etc/letsencrypt/live/$GOST_DOMAIN/privkey.pem"
+                    echo -e "  ${GREEN}Certificate obtained for ${CYAN}$GOST_DOMAIN${NC}"
+                    systemctl start haproxy 2>/dev/null || true
+                else
+                    echo -e "  ${RED}Certbot failed. Ensure port 80 is reachable and DNS points to this server. Using self-signed.${NC}"
+                    cert_choice="s"
+                fi
+            fi
+        fi
+
+        if [ -z "$CERT_FILE" ] || [ ! -f "$CERT_FILE" ]; then
+            mkdir -p "$GOST_DIR"
+            CERT_FILE="$GOST_DIR/cert.pem"
+            KEY_FILE="$GOST_DIR/key.pem"
             echo -e "  ${YELLOW}Generating self-signed TLS certificate (10 years)...${NC}"
             openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
                 -keyout "$KEY_FILE" -out "$CERT_FILE" \
                 -subj "/CN=localhost" 2>/dev/null
             chmod 600 "$KEY_FILE"
-            echo -e "  ${GREEN}Certificate created.${NC}"
+            echo -e "  ${GREEN}Self-signed certificate created.${NC}"
         fi
     fi
 
