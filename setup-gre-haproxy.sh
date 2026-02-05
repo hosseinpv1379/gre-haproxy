@@ -144,7 +144,7 @@ EOF
     exit 0
 fi
 
-# ----- KHAREJ: multiple IRAN tunnels -----
+# ----- KHAREJ: add one IRAN tunnel -----
 if [ "$SIDE" = "kharej" ]; then
     read -p "Use ${MY_IP} as KHAREJ server IP? (y/n): " use_k
     if [[ "$use_k" =~ ^[yY] ]]; then
@@ -153,55 +153,55 @@ if [ "$SIDE" = "kharej" ]; then
         read -p "Enter KHAREJ server public IP: " KHAREJ_IP
     fi
 
-    echo -e "${YELLOW}How many IRAN servers will connect to this KHAREJ? (1, 2, 3, ...)${NC}"
-    read -p "Number of IRAN servers: " N_IRAN
-    N_IRAN=$((N_IRAN + 0))
-    if [ "$N_IRAN" -lt 1 ]; then
-        echo -e "${RED}Enter at least 1.${NC}"
-        exit 1
+    IRAN_IPS=()
+    N_IRAN=0
+    if [ -f "$CONFIG_FILE" ]; then
+        # Read existing: line1=KHAREJ_IP, line2=N, then N lines of IRAN IPs
+        KHAREJ_IP=$(sed -n '1p' "$CONFIG_FILE")
+        N_IRAN=$(sed -n '2p' "$CONFIG_FILE")
+        N_IRAN=$((N_IRAN + 0))
+        for i in $(seq 1 "$N_IRAN"); do
+            line=$((2 + i))
+            ip=$(sed -n "${line}p" "$CONFIG_FILE")
+            [ -n "$ip" ] && IRAN_IPS+=("$ip")
+        done
     fi
 
-    IRAN_IPS=()
-    for i in $(seq 1 "$N_IRAN"); do
-        read -p "Public IP of IRAN server #$i: " ip
-        IRAN_IPS+=("$ip")
-    done
+    echo -e "${YELLOW}Add new IRAN server. Enter public IP of the new IRAN server:${NC}"
+    read -p "New IRAN server IP: " new_iran_ip
+    if [ -z "$new_iran_ip" ]; then
+        echo -e "${RED}IP required.${NC}"
+        exit 1
+    fi
+    N_IRAN=$((N_IRAN + 1))
+    IRAN_IPS+=("$new_iran_ip")
 
-    # Remove existing GRE interfaces used by us (gre-haproxy1, gre-haproxy2, ...)
-    for i in $(seq 1 "$N_IRAN"); do
-        iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${i}"
-        if ip link show "$iface" &>/dev/null; then
-            echo -e "${YELLOW}Removing existing $iface...${NC}"
-            ip link set "$iface" down 2>/dev/null || true
-            ip tunnel del "$iface" 2>/dev/null || true
-        fi
-    done
+    # Create only the new tunnel (gre-haproxyN)
+    iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${N_IRAN}"
+    if ip link show "$iface" &>/dev/null; then
+        echo -e "${YELLOW}Removing existing $iface...${NC}"
+        ip link set "$iface" down 2>/dev/null || true
+        ip tunnel del "$iface" 2>/dev/null || true
+    fi
+    kcidr=$(tunnel_kharej_cidr "$N_IRAN")
+    echo -e "${GREEN}Creating $iface (IRAN #$N_IRAN: $new_iran_ip -> $kcidr)...${NC}"
+    ip tunnel add "$iface" mode gre local "$KHAREJ_IP" remote "$new_iran_ip" ttl 255
+    ip addr add "$kcidr" dev "$iface"
+    ip link set "$iface" mtu 1436
+    ip link set "$iface" up
+    echo -e "${GREEN}Added $iface. Tell this IRAN to use index $N_IRAN.${NC}"
 
-    echo ""
-    echo -e "${GREEN}Creating $N_IRAN GRE tunnel(s) on KHAREJ...${NC}"
-    for i in $(seq 1 "$N_IRAN"); do
-        iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${i}"
-        iran_ip="${IRAN_IPS[$((i-1))]}"
-        kcidr=$(tunnel_kharej_cidr "$i")
-        ip tunnel add "$iface" mode gre local "$KHAREJ_IP" remote "$iran_ip" ttl 255
-        ip addr add "$kcidr" dev "$iface"
-        ip link set "$iface" mtu 1436
-        ip link set "$iface" up
-        echo -e "  ${GREEN}$iface: local $KHAREJ_IP remote $iran_ip -> $kcidr${NC}"
-    done
-
-    # Save state for possible "add tunnel" later
+    # Save config: KHAREJ_IP, N_IRAN, then all IRAN IPs
     mkdir -p "$(dirname "$CONFIG_FILE")"
     echo "$KHAREJ_IP" > "$CONFIG_FILE"
     echo "$N_IRAN" >> "$CONFIG_FILE"
     for ip in "${IRAN_IPS[@]}"; do echo "$ip" >> "$CONFIG_FILE"; done
 
-    # rc.local: ensure file exists, then replace our block
+    # rc.local: full block for all N_IRAN tunnels
     if [ ! -f "$RCLOCAL" ]; then
         printf '%s\n' '#!/bin/bash' 'exit 0' > "$RCLOCAL"
         chmod +x "$RCLOCAL"
     fi
-    # Remove old block
     if grep -q "$GRE_MARKER_START" "$RCLOCAL" 2>/dev/null; then
         sed -i "/$GRE_MARKER_START/,/$GRE_MARKER_END/d" "$RCLOCAL"
         sed -i '/^$/N;/^\n$/d' "$RCLOCAL" 2>/dev/null || true
@@ -226,7 +226,7 @@ if [ "$SIDE" = "kharej" ]; then
     echo -e "${GREEN}Tunnel commands written to $RCLOCAL${NC}"
     echo ""
     echo -e "Tunnels: ${CYAN}ip addr show | grep $TUNNEL_IFACE_KHAREJ_PREFIX${NC}"
-    echo -e "From each IRAN #i: ${CYAN}ping $(tunnel_kharej_ip 1)${NC} (or .20.2, .30.2, ...)"
+    echo -e "This IRAN must use index ${CYAN}$N_IRAN${NC} and backend IP $(tunnel_kharej_ip "$N_IRAN")"
     echo -e "If rc.local does not run on boot: ${CYAN}systemctl enable rc-local${NC}"
     exit 0
 fi

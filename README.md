@@ -8,8 +8,8 @@ Set up **multiple IRAN servers** → **one KHAREJ server** over GRE tunnels with
 sudo bash <(curl -sSL https://raw.githubusercontent.com/hosseinpv1379/gre-haproxy/main/setup-gre-haproxy.sh)
 ```
 
-- Run on **KHAREJ** once: choose 2, enter number of IRAN servers and each IRAN public IP.
-- Run on **each IRAN**: choose 1, enter IRAN index (1, 2, …), then optionally HAProxy ports (e.g. `443=9321,80=8080`).
+- On **KHAREJ**: choose 2, then enter the **new IRAN server public IP** (each run adds one tunnel; first run = first IRAN, next runs = add more).
+- On **each IRAN**: choose 1, enter IRAN index (1, 2, … — must match the order added on KHAREJ), then optionally HAProxy ports.
 - **Remove**: choose 3 to remove GRE tunnel(s) and optionally HAProxy from this server (then choose IRAN or KHAREJ).
 
 ## Script and docs
