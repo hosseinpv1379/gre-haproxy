@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# GRE tunnel + HAProxy — multiple IRAN → one KHAREJ
-# به یاد جان‌فداهای میهن
+# GRE tunnel + HAProxy - multiple IRAN -> one KHAREJ
+# In memory of the martyrs of the homeland.
 #
 
 set -e
@@ -51,10 +51,9 @@ print_panel() {
     echo ""
     echo -e "  ${CYAN}╔══════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "  ${CYAN}║${NC}                                                                  ${CYAN}║${NC}"
-    echo -e "  ${CYAN}║${NC}   ${BOLD}${GREEN}GRE Tunnel + HAProxy${NC}   ${DIM}— multi-IRAN to one KHAREJ${NC}           ${CYAN}║${NC}"
+    echo -e "  ${CYAN}║${NC}   ${BOLD}${GREEN}GRE Tunnel + HAProxy${NC}   ${DIM}multi-IRAN -> one KHAREJ${NC}              ${CYAN}║${NC}"
     echo -e "  ${CYAN}║${NC}                                                                  ${CYAN}║${NC}"
-    echo -e "  ${CYAN}║${NC}   ${DIM}In memory of the martyrs of the homeland${NC}                    ${CYAN}║${NC}"
-    echo -e "  ${CYAN}║${NC}   ${DIM}(be yad-e janfaday-e mihan)${NC}                                 ${CYAN}║${NC}"
+    echo -e "  ${CYAN}║${NC}   ${DIM}be yad jan fadayan mihan${NC}                 ${CYAN}║${NC}"
     echo -e "  ${CYAN}║${NC}                                                                  ${CYAN}║${NC}"
     echo -e "  ${CYAN}╚══════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -62,8 +61,8 @@ print_panel() {
 
 if [ "$EUID" -ne 0 ]; then
     print_panel
-    echo -e "  ${RED}This script must be run as root.${NC}"
-    echo -e "  ${YELLOW}Run: ${NC}sudo bash $0"
+    echo -e "  ${RED}Run as root (sudo).${NC}"
+    echo -e "  ${YELLOW}Usage: ${NC}sudo bash $0"
     echo ""
     exit 1
 fi
@@ -76,22 +75,22 @@ print_panel
 if [ -n "$MY_IP" ]; then
     echo -e "  ${DIM}This server IP:${NC} ${CYAN}${MY_IP}${NC}"
     if [ -n "$ROLE_HINT" ]; then
-        [ "$ROLE_HINT" = "kharej" ] && echo -e "  ${DIM}Current role:${NC} ${GREEN}KHAREJ${NC} — tunnels active"
-        [ "$ROLE_HINT" = "iran" ]   && echo -e "  ${DIM}Current role:${NC} ${GREEN}IRAN${NC} — tunnel active"
+        [ "$ROLE_HINT" = "kharej" ] && echo -e "  ${DIM}Current role:${NC} ${GREEN}KHAREJ${NC} - tunnels active"
+        [ "$ROLE_HINT" = "iran" ]   && echo -e "  ${DIM}Current role:${NC} ${GREEN}IRAN${NC} - tunnel active"
     fi
     echo ""
 fi
 
 echo -e "  ${BOLD}Menu:${NC}"
-echo -e "  ${CYAN}  ┌─ Setup ────────────────────────────────────${NC}"
-echo -e "  ${CYAN}  │${NC}  ${GREEN}1${NC}) IRAN      — Setup tunnel on this server"
-echo -e "  ${CYAN}  │${NC}  ${GREEN}2${NC}) KHAREJ   — Add one IRAN server"
-echo -e "  ${CYAN}  ├─ Manage ───────────────────────────────────${NC}"
-echo -e "  ${CYAN}  │${NC}  ${YELLOW}3${NC}) Remove   — Remove tunnels / HAProxy"
-echo -e "  ${CYAN}  │${NC}  ${YELLOW}4${NC}) Status  — Show tunnel and HAProxy status"
-echo -e "  ${CYAN}  │${NC}  ${YELLOW}5${NC}) iperf3   — Bandwidth test (IRAN → KHAREJ)"
-echo -e "  ${CYAN}  │${NC}  ${YELLOW}6${NC}) HAProxy  — Add port forwarding (IRAN only)"
-echo -e "  ${CYAN}  └──────────────────────────────────────────${NC}"
+echo -e "  ${CYAN}  +-- Setup ------------------------------------${NC}"
+echo -e "  ${CYAN}  |${NC}  ${GREEN}1${NC}) IRAN      - Setup tunnel on this server"
+echo -e "  ${CYAN}  |${NC}  ${GREEN}2${NC}) KHAREJ   - Add one IRAN server"
+echo -e "  ${CYAN}  +-- Manage -----------------------------------${NC}"
+echo -e "  ${CYAN}  |${NC}  ${YELLOW}3${NC}) Remove   - Remove tunnels / HAProxy"
+echo -e "  ${CYAN}  |${NC}  ${YELLOW}4${NC}) Status   - Show tunnel and HAProxy status"
+echo -e "  ${CYAN}  |${NC}  ${YELLOW}5${NC}) iperf3   - Bandwidth test (IRAN -> KHAREJ)"
+echo -e "  ${CYAN}  |${NC}  ${YELLOW}6${NC}) HAProxy  - Add port forwarding (IRAN only)"
+echo -e "  ${CYAN}  +---------------------------------------------${NC}"
 echo ""
 read -p "  Choice (1-6): " side_choice
 
@@ -112,39 +111,39 @@ echo ""
 
 # ----- REMOVE -----
 if [ "$SIDE" = "remove" ]; then
-    echo -e "  ${CYAN}┌─ حذف تونل / HAProxy ─────────────────────${NC}"
-    echo -e "  ${CYAN}│${NC}  ${GREEN}1${NC}) ایران  — حذف تونل این سرور + اختیاری HAProxy"
-    echo -e "  ${CYAN}│${NC}  ${GREEN}2${NC}) خارج   — حذف همه تونل‌های gre-haproxy1,2,..."
-    echo -e "  ${CYAN}└──────────────────────────────────────────${NC}"
-    read -p "  کدام؟ (1 یا 2): " remove_side
+    echo -e "  ${CYAN}+-- Remove tunnel / HAProxy ----------------${NC}"
+    echo -e "  ${CYAN}|${NC}  ${GREEN}1${NC}) IRAN   - Remove tunnel on this server + optional HAProxy"
+    echo -e "  ${CYAN}|${NC}  ${GREEN}2${NC}) KHAREJ - Remove all gre-haproxy1,2,... tunnels"
+    echo -e "  ${CYAN}+-------------------------------------------${NC}"
+    read -p "  Which? (1 or 2): " remove_side
 
     if [ "$remove_side" = "2" ]; then
         for i in $(seq 1 32); do
             iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${i}"
             if ip link show "$iface" &>/dev/null; then
-                echo -e "  ${YELLOW}در حال حذف ${iface}...${NC}"
+                echo -e "  ${YELLOW}Removing ${iface}...${NC}"
                 ip link set "$iface" down 2>/dev/null || true
                 ip tunnel del "$iface" 2>/dev/null || true
-                echo -e "  ${GREEN}✓${NC} $iface حذف شد."
+                echo -e "  ${GREEN}Done.${NC} $iface removed."
             fi
         done
-        [ -f "$CONFIG_FILE" ] && rm -f "$CONFIG_FILE" && echo -e "  ${GREEN}✓${NC} فایل پیکربندی حذف شد."
+        [ -f "$CONFIG_FILE" ] && rm -f "$CONFIG_FILE" && echo -e "  ${GREEN}Done.${NC} Config file removed."
     else
         if ip link show "$TUNNEL_IFACE_IRAN" &>/dev/null; then
-            echo -e "  ${YELLOW}در حال حذف $TUNNEL_IFACE_IRAN...${NC}"
+            echo -e "  ${YELLOW}Removing $TUNNEL_IFACE_IRAN...${NC}"
             ip link set "$TUNNEL_IFACE_IRAN" down 2>/dev/null || true
             ip tunnel del "$TUNNEL_IFACE_IRAN" 2>/dev/null || true
-            echo -e "  ${GREEN}✓${NC} تونل ایران حذف شد."
+            echo -e "  ${GREEN}Done.${NC} IRAN tunnel removed."
         else
-            echo -e "  ${YELLOW}اینترفیس $TUNNEL_IFACE_IRAN یافت نشد.${NC}"
+            echo -e "  ${YELLOW}Interface $TUNNEL_IFACE_IRAN not found.${NC}"
         fi
-        read -p "  HAProxy هم حذف/بازگردانی شود؟ (y/n): " remove_haproxy
+        read -p "  Also remove/restore HAProxy config? (y/n): " remove_haproxy
         if [[ "$remove_haproxy" =~ ^[yY] ]]; then
             systemctl stop haproxy 2>/dev/null || true
             systemctl disable haproxy 2>/dev/null || true
             if [ -f /etc/haproxy/haproxy.cfg.bak ]; then
                 cp /etc/haproxy/haproxy.cfg.bak /etc/haproxy/haproxy.cfg
-                echo -e "  ${GREEN}✓${NC} پیکربندی HAProxy از backup بازگردانی شد."
+                echo -e "  ${GREEN}Done.${NC} HAProxy config restored from backup."
             else
                 cat > /etc/haproxy/haproxy.cfg << 'EOF'
 global
@@ -157,22 +156,20 @@ defaults
     timeout client 50000
     timeout server 50000
 EOF
-                echo -e "  ${GREEN}✓${NC} پیکربندی HAProxy خالی شد."
+                echo -e "  ${GREEN}Done.${NC} HAProxy config cleared."
             fi
-            echo -e "  ${GREEN}✓${NC} HAProxy متوقف و غیرفعال شد."
+            echo -e "  ${GREEN}Done.${NC} HAProxy stopped and disabled."
         fi
     fi
 
     if [ -f "$RCLOCAL" ] && grep -q "$GRE_MARKER_START" "$RCLOCAL" 2>/dev/null; then
         sed -i "/$GRE_MARKER_START/,/$GRE_MARKER_END/d" "$RCLOCAL"
         sed -i '/^$/N;/^\n$/d' "$RCLOCAL" 2>/dev/null || true
-        echo -e "  ${GREEN}✓${NC} دستورات تونل از rc.local حذف شد."
+        echo -e "  ${GREEN}Done.${NC} Tunnel commands removed from rc.local."
     fi
 
     echo ""
-    echo -e "  ${GREEN}╔══════════════════════════════════════════╗${NC}"
-    echo -e "  ${GREEN}║${NC}  ${BOLD}حذف با موفقیت انجام شد.${NC}                    ${GREEN}║${NC}"
-    echo -e "  ${GREEN}╚══════════════════════════════════════════╝${NC}"
+    echo -e "  ${GREEN}Remove completed.${NC}"
     echo ""
     exit 0
 fi
@@ -181,20 +178,19 @@ fi
 if [ "$SIDE" = "status" ]; then
     echo ""
     echo -e "  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "  ${CYAN}║${NC}              ${GREEN}وضعیت تونل و سرویس‌ها${NC}                          ${CYAN}║${NC}"
+    echo -e "  ${CYAN}║${NC}              ${GREEN}Tunnel and services status${NC}                     ${CYAN}║${NC}"
     echo -e "  ${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 
-    # Detect side: KHAREJ has gre-haproxy1 ; IRAN has gre-haproxy only
     if ip link show "${TUNNEL_IFACE_KHAREJ_PREFIX}1" &>/dev/null; then
-        echo -e "  ${YELLOW}▶ نقش${NC}        ${GREEN}خارج (KHAREJ)${NC} — تجمیع چند تونل ایران"
+        echo -e "  ${YELLOW}>> Role${NC}       ${GREEN}KHAREJ${NC} - aggregating multiple IRAN tunnels"
         echo ""
         if [ -f "$CONFIG_FILE" ]; then
             KHAREJ_IP=$(sed -n '1p' "$CONFIG_FILE")
             N_IRAN=$(sed -n '2p' "$CONFIG_FILE")
             N_IRAN=$((N_IRAN + 0))
-            echo -e "  ${YELLOW}▶ این سرور${NC}    ${CYAN}$KHAREJ_IP${NC}"
-            echo -e "  ${YELLOW}▶ تونل‌ها${NC}      $N_IRAN سرور ایران متصل"
+            echo -e "  ${YELLOW}>> This server${NC} ${CYAN}$KHAREJ_IP${NC}"
+            echo -e "  ${YELLOW}>> Tunnels${NC}     $N_IRAN IRAN server(s) connected"
             echo ""
             echo -e "  ${CYAN}┌──────────────────┬─────────────────────┬─────────────────┬────────┐${NC}"
             echo -e "  ${CYAN}│${NC} Interface        ${CYAN}│${NC} IRAN (public)      ${CYAN}│${NC} Tunnel peer     ${CYAN}│${NC} Ping   ${CYAN}│${NC}"
@@ -214,7 +210,7 @@ if [ "$SIDE" = "status" ]; then
             done
             echo -e "  ${CYAN}└──────────────────┴─────────────────────┴─────────────────┴────────┘${NC}"
         else
-            echo -e "  ${YELLOW}▶ پیکربندی${NC}   ${YELLOW}فایل $CONFIG_FILE نیست${NC} — اینترفیس‌های تونل:"
+            echo -e "  ${YELLOW}>> Config${NC}    ${YELLOW}No $CONFIG_FILE${NC} - tunnel interfaces:"
             for i in $(seq 1 32); do
                 iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${i}"
                 if ip link show "$iface" &>/dev/null; then
@@ -226,37 +222,37 @@ if [ "$SIDE" = "status" ]; then
     elif ip link show "$TUNNEL_IFACE_IRAN" &>/dev/null; then
         our_cidr=$(ip -4 addr show "$TUNNEL_IFACE_IRAN" 2>/dev/null | grep -oP 'inet \K[0-9.]+/[0-9]+')
         backend_ip=$(echo "$our_cidr" | cut -d'/' -f1 | sed 's/\.[0-9]*$/.2/')
-        echo -e "  ${YELLOW}▶ نقش${NC}        ${GREEN}ایران (IRAN)${NC} — یک تونل به خارج"
+        echo -e "  ${YELLOW}>> Role${NC}       ${GREEN}IRAN${NC} - single tunnel to KHAREJ"
         echo ""
-        echo -e "  ${YELLOW}▶ اینترفیس${NC}    ${CYAN}$TUNNEL_IFACE_IRAN${NC}"
-        echo -e "  ${YELLOW}▶ طرف ایران${NC}    ${CYAN}${our_cidr:-—}${NC}"
-        echo -e "  ${YELLOW}▶ طرف خارج${NC}     ${CYAN}${backend_ip}${NC}"
+        echo -e "  ${YELLOW}>> Interface${NC}  ${CYAN}$TUNNEL_IFACE_IRAN${NC}"
+        echo -e "  ${YELLOW}>> This side${NC}   ${CYAN}${our_cidr:-—}${NC}"
+        echo -e "  ${YELLOW}>> KHAREJ side${NC} ${CYAN}${backend_ip}${NC}"
         echo ""
         if ping -c 2 -W 2 "$backend_ip" &>/dev/null; then
-            echo -e "  ${YELLOW}▶ اتصال${NC}       ${GREEN}✓ قابل دسترس${NC} — تونل برقرار است"
+            echo -e "  ${YELLOW}>> Reachable${NC}  ${GREEN}Yes${NC} - tunnel is up"
         else
-            echo -e "  ${YELLOW}▶ اتصال${NC}       ${RED}✗ غیرقابل دسترس${NC} — تونل یا سرور خارج را بررسی کنید"
+            echo -e "  ${YELLOW}>> Reachable${NC}  ${RED}No${NC} - check tunnel or KHAREJ server"
         fi
     else
-        echo -e "  ${YELLOW}▶ نقش${NC}      تونلی روی این سرور یافت نشد."
-        echo -e "                 ابتدا از منو گزینه ۱ یا ۲ را اجرا کنید."
+        echo -e "  ${YELLOW}>> Role${NC}     No gre-haproxy tunnel on this server."
+        echo -e "                Run option 1 or 2 first."
     fi
 
     echo ""
-    echo -e "  ${CYAN}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "  ${CYAN}+-------------------------------------------------------------+${NC}"
     if systemctl is-active haproxy &>/dev/null; then
-        echo -e "  ${CYAN}│${NC} ${YELLOW}HAProxy${NC}   ${GREEN}● در حال اجرا${NC}                                        ${CYAN}│${NC}"
+        echo -e "  ${CYAN}|${NC} ${YELLOW}HAProxy${NC}   ${GREEN}Running${NC}                                        ${CYAN}|${NC}"
     else
-        echo -e "  ${CYAN}│${NC} ${YELLOW}HAProxy${NC}   ${YELLOW}○ متوقف${NC} (یا نصب نشده)                                ${CYAN}│${NC}"
+        echo -e "  ${CYAN}|${NC} ${YELLOW}HAProxy${NC}   ${YELLOW}Not running${NC} (or not installed)                    ${CYAN}|${NC}"
     fi
     if [ -f "$RCLOCAL" ] && grep -q "$GRE_MARKER_START" "$RCLOCAL" 2>/dev/null; then
-        echo -e "  ${CYAN}│${NC} ${YELLOW}بوت${NC}       ${GREEN}● تونل در rc.local${NC} (بعد از ریبوت برقرار می‌شود)   ${CYAN}│${NC}"
+        echo -e "  ${CYAN}|${NC} ${YELLOW}Boot${NC}      ${GREEN}Tunnels in rc.local${NC} (will restore after reboot)  ${CYAN}|${NC}"
     else
-        echo -e "  ${CYAN}│${NC} ${YELLOW}بوت${NC}       ${YELLOW}○ rc.local تنظیم نشده${NC} — tunnels won’t restore on boot ${CYAN}│${NC}"
+        echo -e "  ${CYAN}|${NC} ${YELLOW}Boot${NC}      ${YELLOW}rc.local not configured${NC} - tunnels wont restore on boot   ${CYAN}|${NC}"
     fi
-    echo -e "  ${CYAN}└─────────────────────────────────────────────────────────────┘${NC}"
+    echo -e "  ${CYAN}+-------------------------------------------------------------+${NC}"
     echo ""
-    echo -e "  ${GREEN}✓ گزارش وضعیت آماده است.${NC}"
+    echo -e "  ${GREEN}Status complete.${NC}"
     echo ""
     exit 0
 fi
@@ -289,8 +285,8 @@ if [ "$SIDE" = "iperf" ]; then
         fi
         TARGET=$(echo "$our_cidr" | cut -d'/' -f1 | sed 's/\.[0-9]*$/.2/')
         echo ""
-        echo -e "  ${YELLOW}تست پهنای باند ایران → خارج (مقصد: ${CYAN}$TARGET${NC})"
-        echo -e "  ${DIM}${IPERF_STREAMS} اتصال، ${IPERF_DURATION} ثانیه. روی سرور خارج باید سرور iperf3 بالا باشد (گزینه ۵ → Start server).${NC}"
+        echo -e "  ${YELLOW}Bandwidth test IRAN -> KHAREJ (target: ${CYAN}$TARGET${NC})"
+        echo -e "  ${DIM}${IPERF_STREAMS} streams, ${IPERF_DURATION}s. Run iperf3 server on KHAREJ first (option 5 -> Start server).${NC}"
         echo ""
 
         tmpjson=$(mktemp)
@@ -326,33 +322,33 @@ if [ "$SIDE" = "iperf" ]; then
                 iperf3 -c "$TARGET" -P "$IPERF_STREAMS" -t "$IPERF_DURATION" 2>/dev/null || true
             fi
         else
-            echo -e "  ${RED}iperf3 ناموفق. روی سرور خارج سرور iperf3 را با گزینه ۵ روشن کنید.${NC}"
+            echo -e "  ${RED}iperf3 failed. Start iperf3 server on KHAREJ (option 5).${NC}"
             [ -s "$tmpjson_err" ] && cat "$tmpjson_err"
         fi
         exit 0
     fi
 
     if ip link show "${TUNNEL_IFACE_KHAREJ_PREFIX}1" &>/dev/null; then
-        echo -e "  ${CYAN}شروع سرور iperf3 روی این خارج — ایران می‌تواند تست پهنای باند بزند.${NC}"
-        read -p "  سرور ۹۰ ثانیه بالا بیاید؟ (y/n): " run_srv
+        echo -e "  ${CYAN}Start iperf3 server on this KHAREJ so IRAN can run the bandwidth test.${NC}"
+        read -p "  Run server for 90 seconds? (y/n): " run_srv
         if [[ "$run_srv" =~ ^[yY] ]]; then
-            echo -e "  ${GREEN}سرور iperf3 در حال اجرا (پورت 5201). ظرف ۹۰ ثانیه از ایران گزینه ۵ را بزنید.${NC}"
+            echo -e "  ${GREEN}iperf3 server listening on port 5201. From IRAN run option 5 within 90s.${NC}"
             echo ""
             timeout 90 iperf3 -s -1 2>/dev/null || timeout 90 iperf3 -s
-            echo -e "  ${GREEN}سرور متوقف شد.${NC}"
+            echo -e "  ${GREEN}Server stopped.${NC}"
         fi
         exit 0
     fi
 
-    echo -e "  ${YELLOW}تونلی یافت نشد. این گزینه را روی سرور خارج یا ایران (با تونل فعال) اجرا کنید.${NC}"
+    echo -e "  ${YELLOW}No tunnel found. Run this option on KHAREJ or IRAN with tunnel up.${NC}"
     exit 1
 fi
 
 # ----- HAProxy: add or manage port forwarding (IRAN only) -----
 if [ "$SIDE" = "haproxy" ]; then
     if ! ip link show "$TUNNEL_IFACE_IRAN" &>/dev/null; then
-        echo -e "  ${YELLOW}فوروارد پورت HAProxy فقط روی سرور ایران است. روی این سرور تونل gre-haproxy نیست.${NC}"
-        echo -e "  ابتدا گزینه ۱ (ایران) را اجرا کنید، بعد گزینه ۶."
+        echo -e "  ${YELLOW}HAProxy port forwarding is for IRAN servers. This server has no gre-haproxy tunnel.${NC}"
+        echo -e "  Run option 1 (IRAN) first, then option 6."
         exit 1
     fi
     our_cidr=$(ip -4 addr show "$TUNNEL_IFACE_IRAN" 2>/dev/null | grep -oP 'inet \K[0-9.]+/[0-9]+')
@@ -366,24 +362,24 @@ if [ "$SIDE" = "haproxy" ]; then
 
     echo ""
     echo -e "  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "  ${CYAN}║${NC}        ${GREEN}HAProxy — فوروارد پورت (ایران → خارج)${NC}                ${CYAN}║${NC}"
+    echo -e "  ${CYAN}║${NC}        ${GREEN}HAProxy - Port forwarding (IRAN -> KHAREJ)${NC}                ${CYAN}║${NC}"
     echo -e "  ${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  ${YELLOW}▶ Backend (طرف تونل)${NC}  ${CYAN}$BACKEND_IP${NC}"
+    echo -e "  ${YELLOW}>> Backend (tunnel)${NC} ${CYAN}$BACKEND_IP${NC}"
     if [ -f "$CFG" ]; then
         existing=$(grep -oP 'bind 0\.0\.0\.0:\K[0-9]+' "$CFG" 2>/dev/null | sort -u)
         if [ -n "$existing" ]; then
-            echo -e "  ${YELLOW}▶ پورت‌های فعلی${NC}    ${CYAN}$(echo $existing | tr '\n' ' ')${NC}"
+            echo -e "  ${YELLOW}>> Current ports${NC}  ${CYAN}$(echo $existing | tr '\n' ' ')${NC}"
         fi
     fi
     echo ""
-    echo -e "  فرمت: ${CYAN}پورت_گوش دادن=پورت_مقصد${NC} (با کاما جدا کنید)"
-    echo -e "  مثال: ${CYAN}443=9321,80=8080,2070=2070${NC}"
+    echo -e "  Format: ${CYAN}listen_port=backend_port${NC} (comma separated)"
+    echo -e "  Example: ${CYAN}443=9321,80=8080,2070=2070${NC}"
     echo ""
-    read -p "  پورت(های) جدید برای افزودن: " PORTS_INPUT
+    read -p "  New port(s) to add: " PORTS_INPUT
 
     if [ -z "$PORTS_INPUT" ]; then
-        echo -e "  ${YELLOW}ورودی نبود. تغییری اعمال نشد.${NC}"
+        echo -e "  ${YELLOW}No input. Nothing changed.${NC}"
         exit 0
     fi
 
@@ -422,7 +418,7 @@ CFGHEAD
             LPORT="${BASH_REMATCH[1]}"
             BPORT="${BASH_REMATCH[2]}"
             if [ -f "$CFG" ] && grep -q "frontend fe_${LPORT}\|bind 0.0.0.0:${LPORT}" "$CFG" 2>/dev/null; then
-                echo -e "  ${YELLOW}پورت ${LPORT} از قبل وجود دارد، رد شد.${NC}"
+                echo -e "  ${YELLOW}Port ${LPORT} already in config, skipped.${NC}"
                 continue
             fi
             cat >> "$CFG" << EOF
@@ -446,9 +442,9 @@ EOF
             systemctl enable haproxy 2>/dev/null || true
             systemctl reload haproxy 2>/dev/null || systemctl restart haproxy 2>/dev/null || true
             echo ""
-            echo -e "  ${GREEN}✓ HAProxy بارگذاری شد. $added پورت اضافه شد.${NC}"
+            echo -e "  ${GREEN}HAProxy reloaded. $added port(s) added.${NC}"
         else
-            echo -e "  ${RED}خطای پیکربندی HAProxy. از backup بازگردانی شد.${NC}"
+            echo -e "  ${RED}HAProxy config error. Restored from backup.${NC}"
             [ -f /etc/haproxy/haproxy.cfg.bak ] && cp /etc/haproxy/haproxy.cfg.bak "$CFG"
         fi
     fi
@@ -458,18 +454,17 @@ fi
 
 # ----- KHAREJ: add one IRAN tunnel -----
 if [ "$SIDE" = "kharej" ]; then
-    echo -e "  ${CYAN}┌─ سرور خارج (KHAREJ) — اضافه کردن یک ایران ─${NC}"
-    echo -e "  ${CYAN}└──────────────────────────────────────────${NC}"
+    echo -e "  ${CYAN}+-- KHAREJ - Add one IRAN server -----------------${NC}"
     echo ""
     if [ -n "$MY_IP" ]; then
-        read -p "  آی‌پی این سرور (خارج) = ${MY_IP} استفاده شود؟ (y/n): " use_k
+        read -p "  Use ${MY_IP} as KHAREJ server IP? (y/n): " use_k
         if [[ "$use_k" =~ ^[yY] ]]; then
             KHAREJ_IP="$MY_IP"
         else
-            read -p "  آی‌پی عمومی سرور خارج را وارد کنید: " KHAREJ_IP
+            read -p "  Enter KHAREJ server public IP: " KHAREJ_IP
         fi
     else
-        read -p "  آی‌پی عمومی سرور خارج را وارد کنید: " KHAREJ_IP
+        read -p "  Enter KHAREJ server public IP: " KHAREJ_IP
     fi
 
     IRAN_IPS=()
@@ -483,14 +478,14 @@ if [ "$SIDE" = "kharej" ]; then
             ip=$(sed -n "${line}p" "$CONFIG_FILE")
             [ -n "$ip" ] && IRAN_IPS+=("$ip")
         done
-        echo -e "  ${DIM}تا الان $N_IRAN سرور ایران متصل است.${NC}"
+        echo -e "  ${DIM}$N_IRAN IRAN server(s) already connected.${NC}"
         echo ""
     fi
 
-    echo -e "  ${YELLOW}آی‌پی عمومی سرور ایران جدید را وارد کنید:${NC}"
+    echo -e "  ${YELLOW}Enter public IP of the new IRAN server:${NC}"
     read -p "  IP: " new_iran_ip
     if [ -z "$new_iran_ip" ]; then
-        echo -e "  ${RED}آی‌پی الزامی است.${NC}"
+        echo -e "  ${RED}IP is required.${NC}"
         exit 1
     fi
     N_IRAN=$((N_IRAN + 1))
@@ -498,19 +493,19 @@ if [ "$SIDE" = "kharej" ]; then
 
     iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${N_IRAN}"
     if ip link show "$iface" &>/dev/null; then
-        echo -e "  ${YELLOW}در حال جایگزینی $iface...${NC}"
+        echo -e "  ${YELLOW}Replacing existing $iface...${NC}"
         ip link set "$iface" down 2>/dev/null || true
         ip tunnel del "$iface" 2>/dev/null || true
     fi
     kcidr=$(tunnel_kharej_cidr "$N_IRAN")
     echo ""
-    echo -e "  ${GREEN}در حال ایجاد تونل $iface (ایران #$N_IRAN)...${NC}"
+    echo -e "  ${GREEN}Creating tunnel $iface (IRAN #$N_IRAN)...${NC}"
     ip tunnel add "$iface" mode gre local "$KHAREJ_IP" remote "$new_iran_ip" ttl 255
     ip addr add "$kcidr" dev "$iface"
     ip link set "$iface" mtu 1436
     ip link set "$iface" up
     sysctl -w "net.ipv4.conf.$iface.rp_filter=0" 2>/dev/null || true
-    echo -e "  ${GREEN}✓${NC} تونل اضافه شد. روی سرور ایران گزینه ۱ را با ${CYAN}شماره $N_IRAN${NC} اجرا کنید."
+    echo -e "  ${GREEN}Done.${NC} On the IRAN server run option 1 with index ${CYAN}$N_IRAN${NC}."
 
     # Save config: KHAREJ_IP, N_IRAN, then all IRAN IPs
     mkdir -p "$(dirname "$CONFIG_FILE")"
@@ -545,48 +540,44 @@ if [ "$SIDE" = "kharej" ]; then
         echo ""
         echo "exit 0"
     } >> "$RCLOCAL"
-    echo -e "  ${GREEN}✓${NC} دستورات تونل در $RCLOCAL ذخیره شد."
+    echo -e "  ${GREEN}Tunnel commands saved to $RCLOCAL.${NC}"
     echo ""
-    echo -e "  ${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "  ${GREEN}║${NC}  ${BOLD}خارج آماده است.${NC} روی سرور ایران همین اسکریپت را بزنید،     ${GREEN}║${NC}"
-    echo -e "  ${GREEN}║${NC}  گزینه ${CYAN}۱ (ایران)${NC} و شماره ایران را ${CYAN}$N_IRAN${NC} بگذارید.              ${GREEN}║${NC}"
-    echo -e "  ${GREEN}║${NC}  آی‌پی backend آن ایران: ${CYAN}$(tunnel_kharej_ip "$N_IRAN")${NC}                    ${GREEN}║${NC}"
-    echo -e "  ${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo -e "  ${GREEN}KHAREJ ready. On the IRAN server run this script, option 1 (IRAN), index $N_IRAN.${NC}"
+    echo -e "  Backend IP for that IRAN: ${CYAN}$(tunnel_kharej_ip "$N_IRAN")${NC}"
     echo ""
     exit 0
 fi
 
 # ----- IRAN: single tunnel -----
-echo -e "  ${CYAN}┌─ سرور ایران (IRAN) — نصب تونل ─────────────────${NC}"
-echo -e "  ${CYAN}└──────────────────────────────────────────${NC}"
+echo -e "  ${CYAN}+-- IRAN - Setup tunnel on this server -----------${NC}"
 echo ""
-echo -e "  ${YELLOW}شماره این سرور ایران (۱=اولین، ۲=دومین، ...). باید با ترتیب اضافه‌شدن روی خارج یکی باشد.${NC}"
-read -p "  شماره ایران (1, 2, 3, ...): " IRAN_INDEX
+echo -e "  ${YELLOW}This IRAN server index (1=first, 2=second, ...). Must match order added on KHAREJ.${NC}"
+read -p "  IRAN index (1, 2, 3, ...): " IRAN_INDEX
 IRAN_INDEX=$((IRAN_INDEX + 0))
 if [ "$IRAN_INDEX" -lt 1 ]; then
-    echo -e "  ${RED}شماره باید حداقل ۱ باشد.${NC}"
+    echo -e "  ${RED}Index must be at least 1.${NC}"
     exit 1
 fi
 
 if [ -n "$MY_IP" ]; then
-    read -p "  آی‌پی این سرور = ${MY_IP} استفاده شود؟ (y/n): " use_iran
+    read -p "  Use ${MY_IP} as this IRAN server IP? (y/n): " use_iran
     if [[ "$use_iran" =~ ^[yY] ]]; then
         IRAN_IP="$MY_IP"
     else
-        read -p "  آی‌پی عمومی این سرور ایران: " IRAN_IP
+        read -p "  Enter this IRAN server public IP: " IRAN_IP
     fi
 else
-    read -p "  آی‌پی عمومی این سرور ایران: " IRAN_IP
+    read -p "  Enter this IRAN server public IP: " IRAN_IP
 fi
-read -p "  آی‌پی عمومی سرور خارج: " KHAREJ_IP
+read -p "  Enter KHAREJ server public IP: " KHAREJ_IP
 
 if [ -z "$IRAN_IP" ] || [ -z "$KHAREJ_IP" ]; then
-    echo -e "  ${RED}هر دو آی‌پی ایران و خارج لازم است.${NC}"
+    echo -e "  ${RED}Both IRAN and KHAREJ IPs are required.${NC}"
     exit 1
 fi
 
 if ip tunnel show "$TUNNEL_IFACE_IRAN" &>/dev/null; then
-    echo -e "  ${YELLOW}در حال جایگزینی تونل قبلی...${NC}"
+    echo -e "  ${YELLOW}Replacing existing tunnel...${NC}"
     ip link set "$TUNNEL_IFACE_IRAN" down 2>/dev/null || true
     ip tunnel del "$TUNNEL_IFACE_IRAN" 2>/dev/null || true
 fi
@@ -595,13 +586,13 @@ MY_CIDR=$(tunnel_cidr "$IRAN_INDEX")
 BACKEND_IP=$(tunnel_kharej_ip "$IRAN_INDEX")
 
 echo ""
-echo -e "  ${GREEN}در حال ایجاد تونل GRE (ایران #$IRAN_INDEX → $BACKEND_IP)...${NC}"
+echo -e "  ${GREEN}Creating GRE tunnel (IRAN #$IRAN_INDEX -> $BACKEND_IP)...${NC}"
 ip tunnel add "$TUNNEL_IFACE_IRAN" mode gre local "$IRAN_IP" remote "$KHAREJ_IP" ttl 255
 ip addr add "$MY_CIDR" dev "$TUNNEL_IFACE_IRAN"
 ip link set "$TUNNEL_IFACE_IRAN" mtu 1436
 ip link set "$TUNNEL_IFACE_IRAN" up
 sysctl -w "net.ipv4.conf.$TUNNEL_IFACE_IRAN.rp_filter=0" 2>/dev/null || true
-echo -e "  ${GREEN}✓${NC} تونل ساخته شد. این سرور: ${CYAN}$MY_CIDR${NC}، طرف خارج: ${CYAN}$BACKEND_IP${NC}"
+echo -e "  ${GREEN}Done.${NC} This server: ${CYAN}$MY_CIDR${NC}, KHAREJ side: ${CYAN}$BACKEND_IP${NC}"
 echo ""
 
 # rc.local for this Iran (single tunnel)
@@ -626,11 +617,8 @@ sed -i '/^exit 0$/d' "$RCLOCAL" 2>/dev/null || true
     echo ""
     echo "exit 0"
 } >> "$RCLOCAL"
-echo -e "  ${GREEN}✓${NC} دستورات تونل در rc.local ذخیره شد (بعد از ریبوت اجرا می‌شود)."
+echo -e "  ${GREEN}Tunnel commands saved to rc.local (run at boot).${NC}"
 echo ""
-echo -e "  ${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
-echo -e "  ${GREEN}║${NC}  ${BOLD}تونل ایران آماده است.${NC}                                    ${GREEN}║${NC}"
-echo -e "  ${GREEN}║${NC}  تست: ${CYAN}ping $BACKEND_IP${NC}                                   ${GREEN}║${NC}"
-echo -e "  ${GREEN}║${NC}  برای فوروارد پورت، دوباره اسکریپت را بزنید و گزینه ${CYAN}۶${NC} (HAProxy).  ${GREEN}║${NC}"
-echo -e "  ${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
+echo -e "  ${GREEN}IRAN tunnel ready. Test: ping $BACKEND_IP${NC}"
+echo -e "  To add port forwarding, run this script again and choose option 6 (HAProxy)."
 echo ""
