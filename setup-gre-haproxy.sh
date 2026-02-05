@@ -55,14 +55,16 @@ if [ -n "$MY_IP" ]; then
     echo ""
 fi
 
-echo -e "${YELLOW}Select server side:${NC}"
-echo "  1) IRAN (this server is one of the Iran servers)"
-echo "  2) KHAREJ (this server is the single Kharej server)"
-read -p "Choice (1 or 2): " side_choice
+echo -e "${YELLOW}Select action:${NC}"
+echo "  1) IRAN - Setup (this server is one of the Iran servers)"
+echo "  2) KHAREJ - Setup (this server is the single Kharej server)"
+echo "  3) Remove - Remove GRE tunnel(s) and HAProxy from this server"
+read -p "Choice (1, 2 or 3): " side_choice
 
 case "$side_choice" in
     1) SIDE="iran";;
     2) SIDE="kharej";;
+    3) SIDE="remove";;
     *)
         echo -e "${RED}Invalid choice.${NC}"
         exit 1
@@ -70,6 +72,77 @@ case "$side_choice" in
 esac
 
 echo ""
+
+# ----- REMOVE: tear down GRE and HAProxy -----
+if [ "$SIDE" = "remove" ]; then
+    echo -e "${YELLOW}Remove as which side?${NC}"
+    echo "  1) IRAN (remove gre-haproxy tunnel + HAProxy)"
+    echo "  2) KHAREJ (remove all gre-haproxy1, gre-haproxy2, ... tunnels)"
+    read -p "Choice (1 or 2): " remove_side
+
+    if [ "$remove_side" = "2" ]; then
+        # KHAREJ: remove all gre-haproxyN interfaces
+        for i in $(seq 1 32); do
+            iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${i}"
+            if ip link show "$iface" &>/dev/null; then
+                echo -e "${YELLOW}Removing $iface...${NC}"
+                ip link set "$iface" down 2>/dev/null || true
+                ip tunnel del "$iface" 2>/dev/null || true
+                echo -e "${GREEN}Removed $iface${NC}"
+            fi
+        done
+        [ -f "$CONFIG_FILE" ] && rm -f "$CONFIG_FILE" && echo -e "${GREEN}Removed $CONFIG_FILE${NC}"
+    else
+        # IRAN: remove gre-haproxy interface
+        if ip link show "$TUNNEL_IFACE_IRAN" &>/dev/null; then
+            echo -e "${YELLOW}Removing $TUNNEL_IFACE_IRAN...${NC}"
+            ip link set "$TUNNEL_IFACE_IRAN" down 2>/dev/null || true
+            ip tunnel del "$TUNNEL_IFACE_IRAN" 2>/dev/null || true
+            echo -e "${GREEN}Removed $TUNNEL_IFACE_IRAN${NC}"
+        else
+            echo -e "${YELLOW}Interface $TUNNEL_IFACE_IRAN not found.${NC}"
+        fi
+
+        # HAProxy: stop service and restore or clear config
+        read -p "Also remove HAProxy config and stop HAProxy? (y/n): " remove_haproxy
+        if [[ "$remove_haproxy" =~ ^[yY] ]]; then
+            systemctl stop haproxy 2>/dev/null || true
+            systemctl disable haproxy 2>/dev/null || true
+            if [ -f /etc/haproxy/haproxy.cfg.bak ]; then
+                cp /etc/haproxy/haproxy.cfg.bak /etc/haproxy/haproxy.cfg
+                echo -e "${GREEN}Restored HAProxy config from backup.${NC}"
+            else
+                # Minimal valid config so haproxy can start if needed later
+                cat > /etc/haproxy/haproxy.cfg << 'EOF'
+global
+    maxconn 10000
+    daemon
+
+defaults
+    mode tcp
+    timeout connect 5000
+    timeout client 50000
+    timeout server 50000
+EOF
+                echo -e "${GREEN}HAProxy config cleared (minimal).${NC}"
+            fi
+            echo -e "${GREEN}HAProxy stopped and disabled.${NC}"
+        fi
+    fi
+
+    # Remove our block from rc.local (both IRAN and KHAREJ)
+    if [ -f "$RCLOCAL" ] && grep -q "$GRE_MARKER_START" "$RCLOCAL" 2>/dev/null; then
+        sed -i "/$GRE_MARKER_START/,/$GRE_MARKER_END/d" "$RCLOCAL"
+        sed -i '/^$/N;/^\n$/d' "$RCLOCAL" 2>/dev/null || true
+        echo -e "${GREEN}Removed tunnel commands from $RCLOCAL${NC}"
+    fi
+
+    echo ""
+    echo -e "${GREEN}============================================${NC}"
+    echo -e "${GREEN}  Remove done.${NC}"
+    echo -e "${GREEN}============================================${NC}"
+    exit 0
+fi
 
 # ----- KHAREJ: multiple IRAN tunnels -----
 if [ "$SIDE" = "kharej" ]; then
