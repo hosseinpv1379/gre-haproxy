@@ -59,12 +59,14 @@ echo -e "${YELLOW}Select action:${NC}"
 echo "  1) IRAN - Setup (this server is one of the Iran servers)"
 echo "  2) KHAREJ - Setup (this server is the single Kharej server)"
 echo "  3) Remove - Remove GRE tunnel(s) and HAProxy from this server"
-read -p "Choice (1, 2 or 3): " side_choice
+echo "  4) Status - Show tunnel and HAProxy status"
+read -p "Choice (1, 2, 3 or 4): " side_choice
 
 case "$side_choice" in
     1) SIDE="iran";;
     2) SIDE="kharej";;
     3) SIDE="remove";;
+    4) SIDE="status";;
     *)
         echo -e "${RED}Invalid choice.${NC}"
         exit 1
@@ -144,6 +146,77 @@ EOF
     exit 0
 fi
 
+# ----- STATUS: show tunnel and HAProxy status -----
+if [ "$SIDE" = "status" ]; then
+    echo -e "${CYAN}---------- GRE tunnel status ----------${NC}"
+    # Detect side: KHAREJ has gre-haproxy1, gre-haproxy2... ; IRAN has gre-haproxy only
+    if ip link show "${TUNNEL_IFACE_KHAREJ_PREFIX}1" &>/dev/null; then
+        echo -e "${GREEN}Role: KHAREJ (multiple tunnels)${NC}"
+        if [ -f "$CONFIG_FILE" ]; then
+            KHAREJ_IP=$(sed -n '1p' "$CONFIG_FILE")
+            N_IRAN=$(sed -n '2p' "$CONFIG_FILE")
+            N_IRAN=$((N_IRAN + 0))
+            echo -e "Config: ${CYAN}$N_IRAN${NC} IRAN server(s), KHAREJ IP: ${CYAN}$KHAREJ_IP${NC}"
+            for i in $(seq 1 "$N_IRAN"); do
+                line=$((2 + i))
+                iran_ip=$(sed -n "${line}p" "$CONFIG_FILE")
+                iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${i}"
+                peer_ip=$(tunnel_iran_ip "$i")
+                if ip link show "$iface" &>/dev/null; then
+                    echo -e "  ${GREEN}$iface${NC} -> IRAN $iran_ip (peer tunnel IP: $peer_ip)"
+                    ping -c 1 -W 2 "$peer_ip" &>/dev/null && echo -e "    ${GREEN}ping $peer_ip: OK${NC}" || echo -e "    ${RED}ping $peer_ip: FAIL${NC}"
+                else
+                    echo -e "  ${RED}$iface: not found${NC}"
+                fi
+            done
+        else
+            echo -e "${YELLOW}No $CONFIG_FILE. Listing gre-haproxy* interfaces:${NC}"
+        fi
+        echo ""
+        ip -o link show 2>/dev/null | grep -E "^[0-9]+: ${TUNNEL_IFACE_KHAREJ_PREFIX}[0-9]+" || true
+        for i in $(seq 1 32); do
+            iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${i}"
+            if ip addr show "$iface" 2>/dev/null | grep -q inet; then
+                echo ""
+                ip addr show "$iface" 2>/dev/null
+            fi
+        done
+    elif ip link show "$TUNNEL_IFACE_IRAN" &>/dev/null; then
+        echo -e "${GREEN}Role: IRAN (single tunnel)${NC}"
+        ip addr show "$TUNNEL_IFACE_IRAN" 2>/dev/null
+        # Guess backend IP from our CIDR: we are .1, backend is .2
+        our_cidr=$(ip -4 addr show "$TUNNEL_IFACE_IRAN" 2>/dev/null | grep -oP 'inet \K[0-9.]+/[0-9]+')
+        if [ -n "$our_cidr" ]; then
+            base=$(echo "$our_cidr" | cut -d'/' -f1 | sed 's/\.[0-9]*$/.2/')
+            echo ""
+            echo -e "Ping tunnel endpoint (KHAREJ side): ${CYAN}$base${NC}"
+            ping -c 2 -W 2 "$base" 2>/dev/null && echo -e "${GREEN}ping $base: OK${NC}" || echo -e "${RED}ping $base: FAIL${NC}"
+        fi
+    else
+        echo -e "${YELLOW}No gre-haproxy tunnel interface found on this server.${NC}"
+    fi
+    echo ""
+    echo -e "${CYAN}---------- HAProxy ----------${NC}"
+    if systemctl is-active haproxy &>/dev/null; then
+        echo -e "${GREEN}HAProxy: running${NC}"
+        systemctl status haproxy --no-pager 2>/dev/null | head -5
+    else
+        echo -e "${YELLOW}HAProxy: not running or not installed${NC}"
+    fi
+    echo ""
+    echo -e "${CYAN}---------- rc.local (boot) ----------${NC}"
+    if [ -f "$RCLOCAL" ] && grep -q "$GRE_MARKER_START" "$RCLOCAL" 2>/dev/null; then
+        echo -e "${GREEN}Tunnel block found in $RCLOCAL (will run at boot).${NC}"
+    else
+        echo -e "${YELLOW}Tunnel block not found in $RCLOCAL (tunnels may not restore after reboot).${NC}"
+    fi
+    echo ""
+    echo -e "${GREEN}============================================${NC}"
+    echo -e "${GREEN}  Status done.${NC}"
+    echo -e "${GREEN}============================================${NC}"
+    exit 0
+fi
+
 # ----- KHAREJ: add one IRAN tunnel -----
 if [ "$SIDE" = "kharej" ]; then
     read -p "Use ${MY_IP} as KHAREJ server IP? (y/n): " use_k
@@ -189,6 +262,7 @@ if [ "$SIDE" = "kharej" ]; then
     ip addr add "$kcidr" dev "$iface"
     ip link set "$iface" mtu 1436
     ip link set "$iface" up
+    sysctl -w "net.ipv4.conf.$iface.rp_filter=0" 2>/dev/null || true
     echo -e "${GREEN}Added $iface. Tell this IRAN to use index $N_IRAN.${NC}"
 
     # Save config: KHAREJ_IP, N_IRAN, then all IRAN IPs
@@ -218,6 +292,7 @@ if [ "$SIDE" = "kharej" ]; then
             echo "ip addr add $kcidr dev $iface"
             echo "ip link set $iface mtu 1436"
             echo "ip link set $iface up"
+            echo "sysctl -w net.ipv4.conf.$iface.rp_filter=0 2>/dev/null || true"
         done
         echo "$GRE_MARKER_END"
         echo ""
@@ -273,6 +348,7 @@ ip tunnel add "$TUNNEL_IFACE_IRAN" mode gre local "$IRAN_IP" remote "$KHAREJ_IP"
 ip addr add "$MY_CIDR" dev "$TUNNEL_IFACE_IRAN"
 ip link set "$TUNNEL_IFACE_IRAN" mtu 1436
 ip link set "$TUNNEL_IFACE_IRAN" up
+sysctl -w "net.ipv4.conf.$TUNNEL_IFACE_IRAN.rp_filter=0" 2>/dev/null || true
 echo -e "${GREEN}Tunnel created: this IRAN $MY_CIDR, backend (KHAREJ) $BACKEND_IP${NC}"
 ip addr show "$TUNNEL_IFACE_IRAN"
 echo ""
@@ -294,6 +370,7 @@ sed -i '/^exit 0$/d' "$RCLOCAL" 2>/dev/null || true
     echo "ip addr add $MY_CIDR dev $TUNNEL_IFACE_IRAN"
     echo "ip link set $TUNNEL_IFACE_IRAN mtu 1436"
     echo "ip link set $TUNNEL_IFACE_IRAN up"
+    echo "sysctl -w net.ipv4.conf.$TUNNEL_IFACE_IRAN.rp_filter=0 2>/dev/null || true"
     echo "$GRE_MARKER_END"
     echo ""
     echo "exit 0"
