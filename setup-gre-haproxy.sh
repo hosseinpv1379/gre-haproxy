@@ -541,59 +541,75 @@ if [ "$SIDE" = "gost" ]; then
         *) GOST_MODE="tls";;
     esac
 
-    # For tls/wss/http2: ask one domain and get certificate automatically (Let's Encrypt)
+    # For tls/wss/http2: use existing cert in GOST_DIR or get new one (Let's Encrypt)
+    # GOST expects certificate here: CERT_FILE=$GOST_DIR/cert.pem, KEY_FILE=$GOST_DIR/key.pem
     CERT_FILE=""
     KEY_FILE=""
     if [ "$GOST_MODE" != "tcp" ]; then
-        echo ""
-        read -p "  Enter domain for TLS certificate (e.g. tunnel.example.com): " GOST_DOMAIN
-        GOST_DOMAIN=$(echo "$GOST_DOMAIN" | tr -d ' ')
-        if [ -z "$GOST_DOMAIN" ]; then
-            echo -e "  ${RED}Domain is required for TLS/WSS/HTTP2.${NC}"
-            exit 1
-        fi
-
-        # Let's Encrypt (certbot); port 80 must be free and reachable
-        if ! command -v certbot &>/dev/null; then
-            echo -e "  ${YELLOW}Installing certbot...${NC}"
-            apt-get update -qq 2>/dev/null
-            apt-get install -y certbot 2>/dev/null || true
-        fi
-        if ! command -v certbot &>/dev/null; then
-            echo -e "  ${RED}Could not install certbot. Install manually: apt install certbot${NC}"
-            exit 1
-        fi
-
-        echo -e "  ${YELLOW}Freeing port 80 for certificate validation...${NC}"
-        systemctl stop gost-gre 2>/dev/null || true
-        systemctl stop haproxy 2>/dev/null || true
-        for s in nginx apache2 httpd; do systemctl stop "$s" 2>/dev/null || true; done
-        sleep 3
-        if ss -tlnp 2>/dev/null | grep -q ':80 '; then
-            echo -e "  ${YELLOW}Warning: port 80 still in use. Trying certbot anyway...${NC}"
-            ss -tlnp 2>/dev/null | grep ':80 ' || true
-        fi
-
-        CERTBOT_OUT=$(mktemp)
-        CERTBOT_ERR=$(mktemp)
-        trap "rm -f $CERTBOT_OUT $CERTBOT_ERR" EXIT
-        if certbot certonly --standalone -d "$GOST_DOMAIN" \
-            --non-interactive --agree-tos --register-unsafely-without-email \
-            </dev/null >"$CERTBOT_OUT" 2>"$CERTBOT_ERR"; then
-            CERT_FILE="/etc/letsencrypt/live/$GOST_DOMAIN/fullchain.pem"
-            KEY_FILE="/etc/letsencrypt/live/$GOST_DOMAIN/privkey.pem"
-            echo -e "  ${GREEN}Certificate obtained for ${CYAN}$GOST_DOMAIN${NC}"
-        else
-            echo -e "  ${RED}Certbot failed for $GOST_DOMAIN${NC}"
-            echo -e "  ${YELLOW}Certbot output:${NC}"
-            cat "$CERTBOT_ERR" | head -50
+        mkdir -p "$GOST_DIR"
+        GOST_CERT="$GOST_DIR/cert.pem"
+        GOST_KEY="$GOST_DIR/key.pem"
+        if [ -f "$GOST_CERT" ] && [ -f "$GOST_KEY" ]; then
             echo ""
-            echo -e "  ${DIM}Ensure DNS points to this server and port 80 is reachable from the internet.${NC}"
-            systemctl start haproxy 2>/dev/null || true
-            exit 1
+            read -p "  Use existing certificate in $GOST_DIR? (y/n) [y]: " use_existing
+            use_existing="${use_existing:-y}"
+            if [[ "$use_existing" =~ ^[yY] ]]; then
+                CERT_FILE="$GOST_CERT"
+                KEY_FILE="$GOST_KEY"
+                echo -e "  ${GREEN}Using existing cert: ${CYAN}$CERT_FILE${NC}"
+            fi
         fi
-        systemctl start haproxy 2>/dev/null || true
-        for s in nginx apache2 httpd; do systemctl start "$s" 2>/dev/null || true; done
+        if [ -z "$CERT_FILE" ]; then
+            echo ""
+            read -p "  Enter domain for TLS certificate (e.g. tunnel.example.com): " GOST_DOMAIN
+            GOST_DOMAIN=$(echo "$GOST_DOMAIN" | tr -d ' ')
+            if [ -z "$GOST_DOMAIN" ]; then
+                echo -e "  ${RED}Domain is required for TLS/WSS/HTTP2 (or place cert in $GOST_DIR and re-run).${NC}"
+                exit 1
+            fi
+
+            # Let's Encrypt (certbot); port 80 must be free and reachable
+            if ! command -v certbot &>/dev/null; then
+                echo -e "  ${YELLOW}Installing certbot...${NC}"
+                apt-get update -qq 2>/dev/null
+                apt-get install -y certbot 2>/dev/null || true
+            fi
+            if ! command -v certbot &>/dev/null; then
+                echo -e "  ${RED}Could not install certbot. See README for manual certificate steps.${NC}"
+                exit 1
+            fi
+
+            echo -e "  ${YELLOW}Freeing port 80 for certificate validation...${NC}"
+            systemctl stop gost-gre 2>/dev/null || true
+            systemctl stop haproxy 2>/dev/null || true
+            for s in nginx apache2 httpd; do systemctl stop "$s" 2>/dev/null || true; done
+            sleep 3
+            if ss -tlnp 2>/dev/null | grep -q ':80 '; then
+                echo -e "  ${YELLOW}Warning: port 80 still in use. Trying certbot anyway...${NC}"
+                ss -tlnp 2>/dev/null | grep ':80 ' || true
+            fi
+
+            CERTBOT_OUT=$(mktemp)
+            CERTBOT_ERR=$(mktemp)
+            trap "rm -f $CERTBOT_OUT $CERTBOT_ERR" EXIT
+            if certbot certonly --standalone -d "$GOST_DOMAIN" \
+                --non-interactive --agree-tos --register-unsafely-without-email \
+                </dev/null >"$CERTBOT_OUT" 2>"$CERTBOT_ERR"; then
+                CERT_FILE="/etc/letsencrypt/live/$GOST_DOMAIN/fullchain.pem"
+                KEY_FILE="/etc/letsencrypt/live/$GOST_DOMAIN/privkey.pem"
+                echo -e "  ${GREEN}Certificate obtained for ${CYAN}$GOST_DOMAIN${NC}"
+            else
+                echo -e "  ${RED}Certbot failed for $GOST_DOMAIN${NC}"
+                echo -e "  ${YELLOW}Certbot output:${NC}"
+                cat "$CERTBOT_ERR" | head -50
+                echo ""
+                echo -e "  ${DIM}You can get a certificate manually and place it in $GOST_DIR (see README).${NC}"
+                systemctl start haproxy 2>/dev/null || true
+                exit 1
+            fi
+            systemctl start haproxy 2>/dev/null || true
+            for s in nginx apache2 httpd; do systemctl start "$s" 2>/dev/null || true; done
+        fi
     fi
 
     # Load existing ports if re-running
@@ -636,6 +652,18 @@ if [ "$SIDE" = "gost" ]; then
     [ -n "$CERT_FILE" ] && echo "CERT_FILE=$CERT_FILE" >> "$GOST_CONF"
     [ -n "$KEY_FILE" ] && echo "KEY_FILE=$KEY_FILE" >> "$GOST_CONF"
 
+    # TLS/WSS/HTTP2: require cert and key to exist (avoid "open : no such file" from GOST)
+    if [[ "$GOST_MODE" =~ ^(tls|wss|http2)$ ]]; then
+        if [ -z "$CERT_FILE" ] || [ -z "$KEY_FILE" ]; then
+            echo -e "  ${RED}Certificate paths are missing. Re-run and choose domain or place cert in $GOST_DIR.${NC}"
+            exit 1
+        fi
+        if [ ! -f "$CERT_FILE" ] || [ ! -f "$KEY_FILE" ]; then
+            echo -e "  ${RED}Certificate not found: $CERT_FILE or $KEY_FILE${NC}"
+            exit 1
+        fi
+    fi
+
     # Build gost -L arguments from ports file
     GOST_L_ARGS=()
     while IFS='=' read -r LPORT BPORT; do
@@ -659,6 +687,16 @@ if [ "$SIDE" = "gost" ]; then
         exit 0
     fi
 
+    # Build ExecStart with URLs quoted so "&" is not interpreted by systemd
+    EXEC_START="$GOST_CMD"
+    for a in "${GOST_L_ARGS[@]}"; do
+        if [[ "$a" == *"&"* ]]; then
+            EXEC_START="$EXEC_START -L \"$a\""
+        else
+            EXEC_START="$EXEC_START $a"
+        fi
+    done
+
     # Systemd unit
     cat > /etc/systemd/system/gost-gre.service << EOF
 [Unit]
@@ -667,7 +705,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=$GOST_CMD ${GOST_L_ARGS[*]}
+ExecStart=$EXEC_START
 Restart=on-failure
 RestartSec=5
 
