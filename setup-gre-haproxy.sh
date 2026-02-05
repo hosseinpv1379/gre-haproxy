@@ -664,20 +664,20 @@ if [ "$SIDE" = "gost" ]; then
         fi
     fi
 
-    # Build gost -L arguments from ports file
+    # Build gost -L arguments from ports file (array of URLs only; we add -L before each)
     GOST_L_ARGS=()
     while IFS='=' read -r LPORT BPORT; do
         [ -z "$LPORT" ] && continue
         case "$GOST_MODE" in
             tcp)
-                GOST_L_ARGS+=(-L "tcp://:${LPORT}/${BACKEND_IP}:${BPORT}")
+                GOST_L_ARGS+=("tcp://:${LPORT}/${BACKEND_IP}:${BPORT}")
                 ;;
             tls|wss|http2)
                 opts="certFile=${CERT_FILE}&keyFile=${KEY_FILE}"
-                GOST_L_ARGS+=(-L "${GOST_MODE}://:${LPORT}/${BACKEND_IP}:${BPORT}?${opts}")
+                GOST_L_ARGS+=("${GOST_MODE}://:${LPORT}/${BACKEND_IP}:${BPORT}?${opts}")
                 ;;
             *)
-                GOST_L_ARGS+=(-L "tcp://:${LPORT}/${BACKEND_IP}:${BPORT}")
+                GOST_L_ARGS+=("tcp://:${LPORT}/${BACKEND_IP}:${BPORT}")
                 ;;
         esac
     done < "$GOST_PORTS" 2>/dev/null
@@ -687,14 +687,10 @@ if [ "$SIDE" = "gost" ]; then
         exit 0
     fi
 
-    # Build ExecStart with URLs quoted so "&" is not interpreted by systemd
+    # Build ExecStart: one "-L URL" per port; quote URL so "&" is not interpreted by systemd
     EXEC_START="$GOST_CMD"
-    for a in "${GOST_L_ARGS[@]}"; do
-        if [[ "$a" == *"&"* ]]; then
-            EXEC_START="$EXEC_START -L \"$a\""
-        else
-            EXEC_START="$EXEC_START $a"
-        fi
+    for url in "${GOST_L_ARGS[@]}"; do
+        EXEC_START="$EXEC_START -L \"$url\""
     done
 
     # Systemd unit
