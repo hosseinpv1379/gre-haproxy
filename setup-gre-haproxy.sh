@@ -60,13 +60,15 @@ echo "  1) IRAN - Setup (this server is one of the Iran servers)"
 echo "  2) KHAREJ - Setup (this server is the single Kharej server)"
 echo "  3) Remove - Remove GRE tunnel(s) and HAProxy from this server"
 echo "  4) Status - Show tunnel and HAProxy status"
-read -p "Choice (1, 2, 3 or 4): " side_choice
+echo "  5) iperf3 test - Bandwidth test (10 connections, KHAREJ→IRAN)"
+read -p "Choice (1, 2, 3, 4 or 5): " side_choice
 
 case "$side_choice" in
     1) SIDE="iran";;
     2) SIDE="kharej";;
     3) SIDE="remove";;
     4) SIDE="status";;
+    5) SIDE="iperf";;
     *)
         echo -e "${RED}Invalid choice.${NC}"
         exit 1
@@ -215,6 +217,108 @@ if [ "$SIDE" = "status" ]; then
     echo -e "${GREEN}  Status done.${NC}"
     echo -e "${GREEN}============================================${NC}"
     exit 0
+fi
+
+# ----- iperf3 test: 10 connections KHAREJ → IRAN -----
+if [ "$SIDE" = "iperf" ]; then
+    IPERF_DURATION=10
+    IPERF_STREAMS=10
+    if ! command -v iperf3 &>/dev/null; then
+        echo -e "${YELLOW}Installing iperf3...${NC}"
+        apt-get update -qq 2>/dev/null; apt-get install -y iperf3 2>/dev/null || true
+        if ! command -v iperf3 &>/dev/null; then
+            echo -e "${YELLOW}Retrying after full package list update...${NC}"
+            apt-get update
+            apt-get install -y iperf3
+        fi
+        if ! command -v iperf3 &>/dev/null; then
+            echo -e "${RED}Could not install iperf3. Try manually: apt-get update && apt-get install -y iperf3${NC}"
+            exit 1
+        fi
+        echo -e "${GREEN}iperf3 installed.${NC}"
+    fi
+
+    if ip link show "${TUNNEL_IFACE_KHAREJ_PREFIX}1" &>/dev/null && [ -f "$CONFIG_FILE" ]; then
+        # This is KHAREJ: run client toward selected IRAN tunnel IP
+        N_IRAN=$(sed -n '2p' "$CONFIG_FILE")
+        N_IRAN=$((N_IRAN + 0))
+        if [ "$N_IRAN" -lt 1 ]; then
+            echo -e "${RED}No IRAN in config.${NC}"
+            exit 1
+        fi
+        echo -e "${CYAN}Which IRAN tunnel to test? (KHAREJ → IRAN, 10 streams, ${IPERF_DURATION}s)${NC}"
+        for i in $(seq 1 "$N_IRAN"); do
+            line=$((2 + i))
+            iran_ip=$(sed -n "${line}p" "$CONFIG_FILE")
+            peer=$(tunnel_iran_ip "$i")
+            echo -e "  ${GREEN}$i${NC}) IRAN #$i ($iran_ip) — tunnel IP ${CYAN}$peer${NC}"
+        done
+        read -p "Choice (1-$N_IRAN): " idx
+        idx=$((idx + 0))
+        if [ "$idx" -lt 1 ] || [ "$idx" -gt "$N_IRAN" ]; then
+            echo -e "${RED}Invalid choice.${NC}"
+            exit 1
+        fi
+        TARGET=$(tunnel_iran_ip "$idx")
+        echo ""
+        echo -e "${YELLOW}Testing KHAREJ → IRAN #$idx ($TARGET) — ${IPERF_STREAMS} streams, ${IPERF_DURATION}s...${NC}"
+        echo -e "${YELLOW}(Ensure iperf3 server is running on IRAN: run this script on IRAN and choose 5 → Start server)${NC}"
+        echo ""
+
+        tmpjson=$(mktemp)
+        tmpjson_err="${tmpjson}.err"
+        trap 'rm -f "$tmpjson" "$tmpjson_err" 2>/dev/null' EXIT
+        if iperf3 -c "$TARGET" -P "$IPERF_STREAMS" -t "$IPERF_DURATION" -J 2>"$tmpjson_err" >"$tmpjson"; then
+            # Parse JSON: end.sum_received.bits_per_second (receiver = IRAN = bandwidth KHAREJ→IRAN)
+            bps=""
+            if command -v jq &>/dev/null; then
+                bps=$(jq -r '.end.sum_received.bits_per_second // empty' "$tmpjson" 2>/dev/null)
+            fi
+            if [ -z "$bps" ] || [ "$bps" = "null" ]; then
+                bps=$(grep -oP '"bits_per_second":\s*\K[0-9.e+-]+' "$tmpjson" 2>/dev/null | tail -1)
+            fi
+            if [ -z "$bps" ]; then
+                bps=$(sed -n 's/.*"bits_per_second":[[:space:]]*\([0-9.e+-]*\).*/\1/p' "$tmpjson" | tail -1)
+            fi
+            if [ -n "$bps" ] && [ "$bps" != "null" ]; then
+                gbps=$(awk "BEGIN { printf \"%.2f\", $bps/1e9 }")
+                mbs=$(awk "BEGIN { printf \"%.2f\", $bps/8/1e6 }")
+                echo ""
+                echo -e "  ${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
+                echo -e "  ${GREEN}║${NC}     ${CYAN}iperf3${NC}  •  ${IPERF_STREAMS} connections  •  ${IPERF_DURATION}s  •  KHAREJ → IRAN #$idx       ${GREEN}║${NC}"
+                echo -e "  ${GREEN}╠════════════════════════════════════════════════════════════╣${NC}"
+                echo -e "  ${GREEN}║${NC}                                                                ${GREEN}║${NC}"
+                echo -e "  ${GREEN}║${NC}     ${YELLOW}Bandwidth${NC}   ${CYAN}${gbps}${NC} Gbit/s                                    ${GREEN}║${NC}"
+                echo -e "  ${GREEN}║${NC}     ${YELLOW}Throughput${NC}  ${CYAN}${mbs}${NC} MB/s                                      ${GREEN}║${NC}"
+                echo -e "  ${GREEN}║${NC}                                                                ${GREEN}║${NC}"
+                echo -e "  ${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
+                echo ""
+            else
+                echo -e "${YELLOW}Raw iperf3 output:${NC}"
+                iperf3 -c "$TARGET" -P "$IPERF_STREAMS" -t "$IPERF_DURATION" 2>/dev/null || true
+            fi
+        else
+            echo -e "${RED}iperf3 failed. Is iperf3 server running on IRAN? (run this script on IRAN → 5 → Start server)${NC}"
+            [ -s "$tmpjson_err" ] && cat "$tmpjson_err"
+        fi
+        exit 0
+    fi
+
+    if ip link show "$TUNNEL_IFACE_IRAN" &>/dev/null; then
+        # This is IRAN: start iperf3 server so KHAREJ can run the test
+        echo -e "${CYAN}Start iperf3 server on this IRAN so KHAREJ can run the bandwidth test.${NC}"
+        read -p "Run server for 90 seconds? (y/n): " run_srv
+        if [[ "$run_srv" =~ ^[yY] ]]; then
+            echo -e "${GREEN}Starting iperf3 server (listening on 0.0.0.0:5201). Run test from KHAREJ within 90s.${NC}"
+            echo ""
+            timeout 90 iperf3 -s -1 2>/dev/null || timeout 90 iperf3 -s
+            echo -e "${GREEN}Server stopped.${NC}"
+        fi
+        exit 0
+    fi
+
+    echo -e "${YELLOW}No tunnel found. Run on KHAREJ or IRAN with tunnel already set up.${NC}"
+    exit 1
 fi
 
 # ----- KHAREJ: add one IRAN tunnel -----
