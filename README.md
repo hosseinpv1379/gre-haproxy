@@ -15,8 +15,8 @@ sudo bash <(curl -sSL https://raw.githubusercontent.com/hosseinpv1379/VortexL2/m
 
 | Link | Description |
 |------|-------------|
-| [setup-gre-haproxy.sh](https://github.com/hosseinpv1379/VortexL2/blob/main/manual/setup-gre-haproxy.sh) | Main setup script |
-| [Raw script (direct run)](https://raw.githubusercontent.com/hosseinpv1379/VortexL2/main/manual/setup-gre-haproxy.sh) | Direct download URL |
+| [setup-gre-haproxy.sh](https://github.com/hosseinpv1379/gre-haproxy/blob/main/manual/setup-gre-haproxy.sh) | Main setup script |
+| [Raw script (direct run)](https://raw.githubusercontent.com/hosseinpv1379/gre-haproxy/main/manual/setup-gre-haproxy.sh) | Direct download URL |
 | [Manual / full guide](manual/README.md) | Subnets, usage, and troubleshooting |
 
 ## Requirements
