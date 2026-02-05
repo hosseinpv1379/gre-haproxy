@@ -150,72 +150,85 @@ fi
 
 # ----- STATUS: show tunnel and HAProxy status -----
 if [ "$SIDE" = "status" ]; then
-    echo -e "${CYAN}---------- GRE tunnel status ----------${NC}"
-    # Detect side: KHAREJ has gre-haproxy1, gre-haproxy2... ; IRAN has gre-haproxy only
+    echo ""
+    echo -e "  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "  ${CYAN}║${NC}                    ${GREEN}GRE Tunnel Status${NC}                         ${CYAN}║${NC}"
+    echo -e "  ${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    # Detect side: KHAREJ has gre-haproxy1 ; IRAN has gre-haproxy only
     if ip link show "${TUNNEL_IFACE_KHAREJ_PREFIX}1" &>/dev/null; then
-        echo -e "${GREEN}Role: KHAREJ (multiple tunnels)${NC}"
+        echo -e "  ${YELLOW}▶ Role${NC}      ${GREEN}KHAREJ${NC} (this server aggregates multiple IRAN tunnels)"
+        echo ""
         if [ -f "$CONFIG_FILE" ]; then
             KHAREJ_IP=$(sed -n '1p' "$CONFIG_FILE")
             N_IRAN=$(sed -n '2p' "$CONFIG_FILE")
             N_IRAN=$((N_IRAN + 0))
-            echo -e "Config: ${CYAN}$N_IRAN${NC} IRAN server(s), KHAREJ IP: ${CYAN}$KHAREJ_IP${NC}"
+            echo -e "  ${YELLOW}▶ This server${NC}  ${CYAN}$KHAREJ_IP${NC}"
+            echo -e "  ${YELLOW}▶ Tunnels${NC}      $N_IRAN IRAN server(s) connected"
+            echo ""
+            echo -e "  ${CYAN}┌──────────────────┬─────────────────────┬─────────────────┬────────┐${NC}"
+            echo -e "  ${CYAN}│${NC} Interface        ${CYAN}│${NC} IRAN (public)      ${CYAN}│${NC} Tunnel peer     ${CYAN}│${NC} Ping   ${CYAN}│${NC}"
+            echo -e "  ${CYAN}├──────────────────┼─────────────────────┼─────────────────┼────────┤${NC}"
             for i in $(seq 1 "$N_IRAN"); do
                 line=$((2 + i))
                 iran_ip=$(sed -n "${line}p" "$CONFIG_FILE")
                 iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${i}"
                 peer_ip=$(tunnel_iran_ip "$i")
                 if ip link show "$iface" &>/dev/null; then
-                    echo -e "  ${GREEN}$iface${NC} -> IRAN $iran_ip (peer tunnel IP: $peer_ip)"
-                    ping -c 1 -W 2 "$peer_ip" &>/dev/null && echo -e "    ${GREEN}ping $peer_ip: OK${NC}" || echo -e "    ${RED}ping $peer_ip: FAIL${NC}"
+                    ping -c 1 -W 2 "$peer_ip" &>/dev/null && pstat="${GREEN}  ✓ OK${NC}" || pstat="${RED}  ✗ FAIL${NC}"
+                    printf "  ${CYAN}│${NC} %-16s ${CYAN}│${NC} %-19s ${CYAN}│${NC} %-15s ${CYAN}│${NC} %b ${CYAN}│${NC}\n" "$iface" "$iran_ip" "$peer_ip" "$pstat"
                 else
-                    echo -e "  ${RED}$iface: not found${NC}"
+                    pstat="${RED}down${NC}"
+                    printf "  ${CYAN}│${NC} %-16s ${CYAN}│${NC} %-19s ${CYAN}│${NC} %-15s ${CYAN}│${NC} %b ${CYAN}│${NC}\n" "$iface" "$iran_ip" "—" "$pstat"
                 fi
             done
+            echo -e "  ${CYAN}└──────────────────┴─────────────────────┴─────────────────┴────────┘${NC}"
         else
-            echo -e "${YELLOW}No $CONFIG_FILE. Listing gre-haproxy* interfaces:${NC}"
+            echo -e "  ${YELLOW}▶ Config${NC}     ${YELLOW}No $CONFIG_FILE${NC} — tunnel interfaces:"
+            for i in $(seq 1 32); do
+                iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${i}"
+                if ip link show "$iface" &>/dev/null; then
+                    addr=$(ip -4 addr show "$iface" 2>/dev/null | grep -oP 'inet \K[0-9.]+/[0-9]+' || echo "—")
+                    echo -e "                   ${GREEN}$iface${NC}  $addr"
+                fi
+            done
         fi
-        echo ""
-        ip -o link show 2>/dev/null | grep -E "^[0-9]+: ${TUNNEL_IFACE_KHAREJ_PREFIX}[0-9]+" || true
-        for i in $(seq 1 32); do
-            iface="${TUNNEL_IFACE_KHAREJ_PREFIX}${i}"
-            if ip addr show "$iface" 2>/dev/null | grep -q inet; then
-                echo ""
-                ip addr show "$iface" 2>/dev/null
-            fi
-        done
     elif ip link show "$TUNNEL_IFACE_IRAN" &>/dev/null; then
-        echo -e "${GREEN}Role: IRAN (single tunnel)${NC}"
-        ip addr show "$TUNNEL_IFACE_IRAN" 2>/dev/null
-        # Guess backend IP from our CIDR: we are .1, backend is .2
         our_cidr=$(ip -4 addr show "$TUNNEL_IFACE_IRAN" 2>/dev/null | grep -oP 'inet \K[0-9.]+/[0-9]+')
-        if [ -n "$our_cidr" ]; then
-            base=$(echo "$our_cidr" | cut -d'/' -f1 | sed 's/\.[0-9]*$/.2/')
-            echo ""
-            echo -e "Ping tunnel endpoint (KHAREJ side): ${CYAN}$base${NC}"
-            ping -c 2 -W 2 "$base" 2>/dev/null && echo -e "${GREEN}ping $base: OK${NC}" || echo -e "${RED}ping $base: FAIL${NC}"
+        backend_ip=$(echo "$our_cidr" | cut -d'/' -f1 | sed 's/\.[0-9]*$/.2/')
+        echo -e "  ${YELLOW}▶ Role${NC}      ${GREEN}IRAN${NC} (single tunnel to KHAREJ)"
+        echo ""
+        echo -e "  ${YELLOW}▶ Interface${NC}   ${CYAN}$TUNNEL_IFACE_IRAN${NC}"
+        echo -e "  ${YELLOW}▶ This side${NC}    ${CYAN}${our_cidr:-—}${NC}  (this server)"
+        echo -e "  ${YELLOW}▶ KHAREJ side${NC}  ${CYAN}${backend_ip}${NC}  (tunnel endpoint)"
+        echo ""
+        if ping -c 2 -W 2 "$backend_ip" &>/dev/null; then
+            echo -e "  ${YELLOW}▶ Connectivity${NC} ${GREEN}✓ Reachable${NC} — tunnel is up"
+        else
+            echo -e "  ${YELLOW}▶ Connectivity${NC} ${RED}✗ Unreachable${NC} — check tunnel or KHAREJ"
         fi
     else
-        echo -e "${YELLOW}No gre-haproxy tunnel interface found on this server.${NC}"
+        echo -e "  ${YELLOW}▶ Role${NC}      No gre-haproxy tunnel on this server."
+        echo -e "                 Run setup (option 1 or 2) first."
     fi
+
     echo ""
-    echo -e "${CYAN}---------- HAProxy ----------${NC}"
+    echo -e "  ${CYAN}┌─────────────────────────────────────────────────────────────┐${NC}"
     if systemctl is-active haproxy &>/dev/null; then
-        echo -e "${GREEN}HAProxy: running${NC}"
-        systemctl status haproxy --no-pager 2>/dev/null | head -5
+        echo -e "  ${CYAN}│${NC} ${YELLOW}HAProxy${NC}   ${GREEN}● Running${NC}                                              ${CYAN}│${NC}"
     else
-        echo -e "${YELLOW}HAProxy: not running or not installed${NC}"
+        echo -e "  ${CYAN}│${NC} ${YELLOW}HAProxy${NC}   ${YELLOW}○ Not running${NC} (or not installed)                         ${CYAN}│${NC}"
     fi
-    echo ""
-    echo -e "${CYAN}---------- rc.local (boot) ----------${NC}"
     if [ -f "$RCLOCAL" ] && grep -q "$GRE_MARKER_START" "$RCLOCAL" 2>/dev/null; then
-        echo -e "${GREEN}Tunnel block found in $RCLOCAL (will run at boot).${NC}"
+        echo -e "  ${CYAN}│${NC} ${YELLOW}Boot${NC}      ${GREEN}● Tunnels in rc.local${NC} (will restore after reboot)     ${CYAN}│${NC}"
     else
-        echo -e "${YELLOW}Tunnel block not found in $RCLOCAL (tunnels may not restore after reboot).${NC}"
+        echo -e "  ${CYAN}│${NC} ${YELLOW}Boot${NC}      ${YELLOW}○ rc.local not configured${NC} — tunnels won’t restore on boot ${CYAN}│${NC}"
     fi
+    echo -e "  ${CYAN}└─────────────────────────────────────────────────────────────┘${NC}"
     echo ""
-    echo -e "${GREEN}============================================${NC}"
-    echo -e "${GREEN}  Status done.${NC}"
-    echo -e "${GREEN}============================================${NC}"
+    echo -e "  ${GREEN}Status complete.${NC}"
+    echo ""
     exit 0
 fi
 
