@@ -673,7 +673,8 @@ if [ "$SIDE" = "gost" ]; then
                 GOST_L_ARGS+=("tcp://:${LPORT}/${BACKEND_IP}:${BPORT}")
                 ;;
             tls|wss|http2)
-                opts="certFile=${CERT_FILE}&keyFile=${KEY_FILE}"
+                # GOST v3: cert params apply to listener; use scoped names so listener picks them up
+                opts="listener.certFile=${CERT_FILE}&listener.keyFile=${KEY_FILE}"
                 GOST_L_ARGS+=("${GOST_MODE}://:${LPORT}/${BACKEND_IP}:${BPORT}?${opts}")
                 ;;
             *)

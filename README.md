@@ -80,6 +80,20 @@ sudo chmod 600 /etc/gost-gre/key.pem
 
 Run the setup script → choose **7 (GOST)** → choose TLS/WSS/HTTP2. When asked **“Use existing certificate in /etc/gost-gre? (y/n)”** answer **y**. Then add your port(s). The script will use the cert and key in `/etc/gost-gre/` and (re)start the GOST service.
 
+## Why TCP works but TLS/WSS/HTTP2 don't connect
+
+With **TCP** mode, the server accepts **raw TCP**. Any app that connects to `IP:port` works.
+
+With **TLS / WSS / HTTP2**, the server expects a **TLS handshake** first. If the client connects with plain TCP (same config as for TCP mode), the connection fails.
+
+**Fix:** The client must speak TLS. Use GOST on the client side:
+
+```bash
+gost -L tcp://:2222/10.10.20.2:5050 -F forward+tls://YOUR_DOMAIN:5050
+```
+
+Then connect your app to `127.0.0.1:2222`. Use your **domain** (e.g. testg.t30link.net), not the IP. For **WSS/HTTP2** you need a client that does WebSocket or HTTP/2 over TLS.
+
 ## Author
 
 GitHub: [hosseinpv1379](https://github.com/hosseinpv1379)
