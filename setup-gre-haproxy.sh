@@ -61,7 +61,8 @@ echo "  2) KHAREJ - Setup (this server is the single Kharej server)"
 echo "  3) Remove - Remove GRE tunnel(s) and HAProxy from this server"
 echo "  4) Status - Show tunnel and HAProxy status"
 echo "  5) iperf3 test - Bandwidth test (10 connections, IRAN→KHAREJ)"
-read -p "Choice (1, 2, 3, 4 or 5): " side_choice
+echo "  6) HAProxy - Add or manage port forwarding (IRAN only)"
+read -p "Choice (1, 2, 3, 4, 5 or 6): " side_choice
 
 case "$side_choice" in
     1) SIDE="iran";;
@@ -69,6 +70,7 @@ case "$side_choice" in
     3) SIDE="remove";;
     4) SIDE="status";;
     5) SIDE="iperf";;
+    6) SIDE="haproxy";;
     *)
         echo -e "${RED}Invalid choice.${NC}"
         exit 1
@@ -320,6 +322,114 @@ if [ "$SIDE" = "iperf" ]; then
     exit 1
 fi
 
+# ----- HAProxy: add or manage port forwarding (IRAN only) -----
+if [ "$SIDE" = "haproxy" ]; then
+    if ! ip link show "$TUNNEL_IFACE_IRAN" &>/dev/null; then
+        echo -e "${YELLOW}HAProxy port forwarding is for IRAN servers. This server has no gre-haproxy tunnel.${NC}"
+        echo -e "Set up the tunnel first (option 1), then add ports here (option 6)."
+        exit 1
+    fi
+    our_cidr=$(ip -4 addr show "$TUNNEL_IFACE_IRAN" 2>/dev/null | grep -oP 'inet \K[0-9.]+/[0-9]+')
+    BACKEND_IP=$(echo "$our_cidr" | cut -d'/' -f1 | sed 's/\.[0-9]*$/.2/')
+    CFG="/etc/haproxy/haproxy.cfg"
+
+    if ! command -v haproxy &>/dev/null; then
+        echo -e "${YELLOW}Installing HAProxy...${NC}"
+        apt-get update -qq && apt-get install -y haproxy
+    fi
+
+    echo ""
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}           ${GREEN}HAProxy — Port forwarding (IRAN → KHAREJ)${NC}           ${CYAN}║${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${YELLOW}▶ Backend (tunnel)${NC}  ${CYAN}$BACKEND_IP${NC}"
+    if [ -f "$CFG" ]; then
+        existing=$(grep -oP 'bind 0\.0\.0\.0:\K[0-9]+' "$CFG" 2>/dev/null | sort -u)
+        if [ -n "$existing" ]; then
+            echo -e "  ${YELLOW}▶ Current ports${NC}    ${CYAN}$(echo $existing | tr '\n' ' ')${NC}"
+        fi
+    fi
+    echo ""
+    echo -e "  Format: ${CYAN}listen_port=backend_port${NC} (comma separated)"
+    echo -e "  Example: ${CYAN}443=9321,80=8080,2070=2070${NC}"
+    echo ""
+    read -p "  New port(s) to add: " PORTS_INPUT
+
+    if [ -z "$PORTS_INPUT" ]; then
+        echo -e "${YELLOW}No ports entered. Nothing changed.${NC}"
+        exit 0
+    fi
+
+    need_full_config=0
+    if [ ! -f "$CFG" ] || ! grep -q "frontend fe_\|backend tunnel_" "$CFG" 2>/dev/null; then
+        need_full_config=1
+    fi
+
+    [ -f "$CFG" ] && cp "$CFG" /etc/haproxy/haproxy.cfg.bak
+
+    if [ "$need_full_config" -eq 1 ]; then
+        cat > "$CFG" << 'CFGHEAD'
+global
+    maxconn 10000
+    log stdout local0
+    chroot /var/lib/haproxy
+    stats socket /var/run/haproxy.sock mode 660 level admin
+    daemon
+
+defaults
+    log     global
+    mode    tcp
+    option  tcplog
+    timeout connect 5000
+    timeout client  50000
+    timeout server  50000
+
+CFGHEAD
+    fi
+
+    added=0
+    IFS=',' read -ra PAIRS <<< "$PORTS_INPUT"
+    for pair in "${PAIRS[@]}"; do
+        pair=$(echo "$pair" | tr -d ' ')
+        if [[ "$pair" =~ ^([0-9]+)=([0-9]+)$ ]]; then
+            LPORT="${BASH_REMATCH[1]}"
+            BPORT="${BASH_REMATCH[2]}"
+            if [ -f "$CFG" ] && grep -q "frontend fe_${LPORT}\|bind 0.0.0.0:${LPORT}" "$CFG" 2>/dev/null; then
+                echo -e "  ${YELLOW}Port ${LPORT} already in config, skipped.${NC}"
+                continue
+            fi
+            cat >> "$CFG" << EOF
+
+backend tunnel_${LPORT}
+    mode tcp
+    server s1 ${BACKEND_IP}:${BPORT} check
+
+frontend fe_${LPORT}
+    mode tcp
+    bind 0.0.0.0:${LPORT}
+    default_backend tunnel_${LPORT}
+EOF
+            echo -e "  ${GREEN}✓${NC} Port ${CYAN}${LPORT}${NC} → ${BACKEND_IP}:${BPORT}"
+            added=$((added + 1))
+        fi
+    done
+
+    if [ "$added" -gt 0 ]; then
+        if haproxy -c -f "$CFG" 2>/dev/null; then
+            systemctl enable haproxy 2>/dev/null || true
+            systemctl reload haproxy 2>/dev/null || systemctl restart haproxy 2>/dev/null || true
+            echo ""
+            echo -e "  ${GREEN}HAProxy reloaded. $added port(s) added.${NC}"
+        else
+            echo -e "  ${RED}HAProxy config error. Restored backup. Check: haproxy -c -f $CFG${NC}"
+            [ -f /etc/haproxy/haproxy.cfg.bak ] && cp /etc/haproxy/haproxy.cfg.bak "$CFG"
+        fi
+    fi
+    echo ""
+    exit 0
+fi
+
 # ----- KHAREJ: add one IRAN tunnel -----
 if [ "$SIDE" = "kharej" ]; then
     read -p "Use ${MY_IP} as KHAREJ server IP? (y/n): " use_k
@@ -479,83 +589,13 @@ sed -i '/^exit 0$/d' "$RCLOCAL" 2>/dev/null || true
     echo "exit 0"
 } >> "$RCLOCAL"
 echo -e "${GREEN}Commands added to $RCLOCAL${NC}"
-
-# HAProxy on IRAN: forward to this tunnel's KHAREJ IP
-echo ""
-echo -e "${CYAN}--------------------------------------------${NC}"
-echo -e "${YELLOW}HAProxy port forward (to KHAREJ $BACKEND_IP)${NC}"
-echo -e "${YELLOW}Format: listen_port=backend_port (comma separated)${NC}"
-echo -e "${YELLOW}Example: 443=9321,80=8080,2070=2070${NC}"
-echo -e "${CYAN}--------------------------------------------${NC}"
-read -p "Ports: " PORTS_INPUT
-
-if [ -n "$PORTS_INPUT" ]; then
-    if ! command -v haproxy &>/dev/null; then
-        echo -e "${YELLOW}Installing HAProxy...${NC}"
-        apt-get update -qq
-        apt-get install -y haproxy
-    fi
-
-    [ -f /etc/haproxy/haproxy.cfg ] && cp /etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg.bak
-
-    CFG="/etc/haproxy/haproxy.cfg"
-    cat > "$CFG" << 'CFGHEAD'
-global
-    maxconn 10000
-    log stdout local0
-    chroot /var/lib/haproxy
-    stats socket /var/run/haproxy.sock mode 660 level admin
-    daemon
-
-defaults
-    log     global
-    mode    tcp
-    option  tcplog
-    timeout connect 5000
-    timeout client  50000
-    timeout server  50000
-
-CFGHEAD
-
-    IFS=',' read -ra PAIRS <<< "$PORTS_INPUT"
-    for pair in "${PAIRS[@]}"; do
-        pair=$(echo "$pair" | tr -d ' ')
-        if [[ "$pair" =~ ^([0-9]+)=([0-9]+)$ ]]; then
-            LPORT="${BASH_REMATCH[1]}"
-            BPORT="${BASH_REMATCH[2]}"
-            cat >> "$CFG" << EOF
-
-backend tunnel_${LPORT}
-    mode tcp
-    server s1 ${BACKEND_IP}:${BPORT} check
-
-frontend fe_${LPORT}
-    mode tcp
-    bind 0.0.0.0:${LPORT}
-    default_backend tunnel_${LPORT}
-EOF
-            echo -e "  ${GREEN}Port ${LPORT} -> ${BACKEND_IP}:${BPORT}${NC}"
-        fi
-    done
-
-    if haproxy -c -f "$CFG" 2>/dev/null; then
-        systemctl enable haproxy 2>/dev/null || true
-        systemctl restart haproxy 2>/dev/null || systemctl start haproxy
-        echo -e "${GREEN}HAProxy started.${NC}"
-    else
-        echo -e "${RED}HAProxy config error. Check: haproxy -c -f $CFG${NC}"
-    fi
-else
-    echo -e "${YELLOW}No ports entered. HAProxy not configured.${NC}"
-fi
-
 echo ""
 echo -e "${GREEN}============================================${NC}"
-echo -e "${GREEN}  Done.${NC}"
+echo -e "${GREEN}  Tunnel done.${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo ""
 echo -e "Tunnel: ${CYAN}ip addr show $TUNNEL_IFACE_IRAN${NC}"
 echo -e "Test: ${CYAN}ping $BACKEND_IP${NC}"
-echo -e "HAProxy: ${CYAN}systemctl status haproxy${NC}"
+echo -e "To add port forwarding (HAProxy): run this script again → option ${CYAN}6${NC}"
 echo -e "If rc.local does not run on boot: ${CYAN}systemctl enable rc-local${NC}"
 echo ""
