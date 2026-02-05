@@ -90,9 +90,10 @@ echo -e "  ${CYAN}  |${NC}  ${YELLOW}3${NC}) Remove   - Remove tunnels / HAProxy
 echo -e "  ${CYAN}  |${NC}  ${YELLOW}4${NC}) Status   - Show tunnel and HAProxy status"
 echo -e "  ${CYAN}  |${NC}  ${YELLOW}5${NC}) iperf3   - Bandwidth test (IRAN -> KHAREJ)"
 echo -e "  ${CYAN}  |${NC}  ${YELLOW}6${NC}) HAProxy  - Add port forwarding (IRAN only)"
+echo -e "  ${CYAN}  |${NC}  ${YELLOW}7${NC}) GOST    - Port forwarding with evasion modes (IRAN only)"
 echo -e "  ${CYAN}  +---------------------------------------------${NC}"
 echo ""
-read -p "  Choice (1-6): " side_choice
+read -p "  Choice (1-7): " side_choice
 
 case "$side_choice" in
     1) SIDE="iran";;
@@ -101,6 +102,7 @@ case "$side_choice" in
     4) SIDE="status";;
     5) SIDE="iperf";;
     6) SIDE="haproxy";;
+    7) SIDE="gost";;
     *)
         echo -e "  ${RED}Invalid choice.${NC}"
         exit 1
@@ -159,6 +161,14 @@ EOF
                 echo -e "  ${GREEN}Done.${NC} HAProxy config cleared."
             fi
             echo -e "  ${GREEN}Done.${NC} HAProxy stopped and disabled."
+        fi
+        read -p "  Also remove GOST port forwarding (gost-gre)? (y/n): " remove_gost
+        if [[ "$remove_gost" =~ ^[yY] ]]; then
+            systemctl stop gost-gre 2>/dev/null || true
+            systemctl disable gost-gre 2>/dev/null || true
+            rm -f /etc/systemd/system/gost-gre.service
+            systemctl daemon-reload 2>/dev/null || true
+            echo -e "  ${GREEN}Done.${NC} GOST service stopped and removed."
         fi
     fi
 
@@ -244,6 +254,11 @@ if [ "$SIDE" = "status" ]; then
         echo -e "  ${CYAN}|${NC} ${YELLOW}HAProxy${NC}   ${GREEN}Running${NC}                                        ${CYAN}|${NC}"
     else
         echo -e "  ${CYAN}|${NC} ${YELLOW}HAProxy${NC}   ${YELLOW}Not running${NC} (or not installed)                    ${CYAN}|${NC}"
+    fi
+    if systemctl is-active gost-gre &>/dev/null 2>/dev/null; then
+        echo -e "  ${CYAN}|${NC} ${YELLOW}GOST${NC}      ${GREEN}Running${NC} (evasion port forwarding)                 ${CYAN}|${NC}"
+    else
+        echo -e "  ${CYAN}|${NC} ${YELLOW}GOST${NC}      ${YELLOW}Not running${NC} (or not configured)                   ${CYAN}|${NC}"
     fi
     if [ -f "$RCLOCAL" ] && grep -q "$GRE_MARKER_START" "$RCLOCAL" 2>/dev/null; then
         echo -e "  ${CYAN}|${NC} ${YELLOW}Boot${NC}      ${GREEN}Tunnels in rc.local${NC} (will restore after reboot)  ${CYAN}|${NC}"
@@ -447,6 +462,186 @@ EOF
             echo -e "  ${RED}HAProxy config error. Restored from backup.${NC}"
             [ -f /etc/haproxy/haproxy.cfg.bak ] && cp /etc/haproxy/haproxy.cfg.bak "$CFG"
         fi
+    fi
+    echo ""
+    exit 0
+fi
+
+# ----- GOST: port forwarding with evasion modes (IRAN only) -----
+GOST_BIN="/usr/local/bin/gost"
+GOST_DIR="/etc/gost-gre"
+GOST_CONF="$GOST_DIR/config"
+GOST_PORTS="$GOST_DIR/ports"
+if [ "$SIDE" = "gost" ]; then
+    if ! ip link show "$TUNNEL_IFACE_IRAN" &>/dev/null; then
+        echo -e "  ${YELLOW}GOST port forwarding is for IRAN servers. This server has no gre-haproxy tunnel.${NC}"
+        echo -e "  Run option 1 (IRAN) first, then option 7."
+        exit 1
+    fi
+    our_cidr=$(ip -4 addr show "$TUNNEL_IFACE_IRAN" 2>/dev/null | grep -oP 'inet \K[0-9.]+/[0-9]+')
+    BACKEND_IP=$(echo "$our_cidr" | cut -d'/' -f1 | sed 's/\.[0-9]*$/.2/')
+
+    # Install GOST if missing
+    if ! command -v gost &>/dev/null && [ ! -x "$GOST_BIN" ]; then
+        echo -e "  ${YELLOW}Installing GOST (GO Simple Tunnel)...${NC}"
+        GOST_VER="3.2.6"
+        ARCH=$(uname -m)
+        case "$ARCH" in
+            x86_64|amd64) GOST_ARCH="amd64";;
+            aarch64|arm64) GOST_ARCH="arm64";;
+            armv7l|armhf) GOST_ARCH="armv7";;
+            i386|i686) GOST_ARCH="386";;
+            *) GOST_ARCH="amd64";;
+        esac
+        GURL="https://github.com/go-gost/gost/releases/download/v${GOST_VER}/gost_${GOST_VER}_linux_${GOST_ARCH}.tar.gz"
+        tmpdir=$(mktemp -d)
+        trap "rm -rf $tmpdir" EXIT
+        if ! curl -sSLf -o "$tmpdir/gost.tar.gz" "$GURL" 2>/dev/null; then
+            echo -e "  ${RED}Download failed. Try manually: wget $GURL${NC}"
+            exit 1
+        fi
+        tar -xzf "$tmpdir/gost.tar.gz" -C "$tmpdir"
+        mkdir -p /usr/local/bin
+        if [ -f "$tmpdir/gost" ]; then
+            cp -f "$tmpdir/gost" "$GOST_BIN"
+        else
+            find "$tmpdir" -maxdepth 2 -type f -name gost -exec cp -f {} "$GOST_BIN" \;
+        fi
+        chmod +x "$GOST_BIN"
+        if [ ! -x "$GOST_BIN" ]; then
+            echo -e "  ${RED}GOST install failed.${NC}"
+            exit 1
+        fi
+        echo -e "  ${GREEN}GOST installed.${NC}"
+    fi
+    GOST_CMD="$GOST_BIN"
+    [ -x "$GOST_BIN" ] && GOST_CMD="$GOST_BIN"
+
+    echo ""
+    echo -e "  ${CYAN}╔════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "  ${CYAN}║${NC}   ${GREEN}GOST - Port forwarding with evasion modes${NC} (IRAN -> KHAREJ)      ${CYAN}║${NC}"
+    echo -e "  ${CYAN}║${NC}   ${DIM}Modes that are harder for firewalls to detect.${NC}                    ${CYAN}║${NC}"
+    echo -e "  ${CYAN}╚════════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${YELLOW}>> Backend (tunnel)${NC} ${CYAN}$BACKEND_IP${NC}"
+    echo ""
+    echo -e "  ${BOLD}Listener mode (evasion):${NC}"
+    echo -e "  ${CYAN}  |${NC}  ${GREEN}1${NC}) tcp   - Plain TCP (like HAProxy, no obfuscation)"
+    echo -e "  ${CYAN}  |${NC}  ${GREEN}2${NC}) tls   - TLS (looks like HTTPS; DPI-resistant)"
+    echo -e "  ${CYAN}  |${NC}  ${GREEN}3${NC}) wss   - WebSocket over TLS (browser-like; harder to detect)"
+    echo -e "  ${CYAN}  |${NC}  ${GREEN}4${NC}) http2 - HTTP/2 over TLS (normal web traffic shape)"
+    echo -e "  ${CYAN}  +------------------------------------------------------------------${NC}"
+    read -p "  Mode (1-4) [default 2=tls]: " mode_choice
+    case "${mode_choice:-2}" in
+        1) GOST_MODE="tcp";;
+        2) GOST_MODE="tls";;
+        3) GOST_MODE="wss";;
+        4) GOST_MODE="http2";;
+        *) GOST_MODE="tls";;
+    esac
+
+    # For tls/wss/http2 ensure self-signed cert exists
+    if [ "$GOST_MODE" != "tcp" ]; then
+        mkdir -p "$GOST_DIR"
+        CERT_FILE="$GOST_DIR/cert.pem"
+        KEY_FILE="$GOST_DIR/key.pem"
+        if [ ! -f "$KEY_FILE" ] || [ ! -f "$CERT_FILE" ]; then
+            echo -e "  ${YELLOW}Generating self-signed TLS certificate (10 years)...${NC}"
+            openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+                -keyout "$KEY_FILE" -out "$CERT_FILE" \
+                -subj "/CN=localhost" 2>/dev/null
+            chmod 600 "$KEY_FILE"
+            echo -e "  ${GREEN}Certificate created.${NC}"
+        fi
+    fi
+
+    # Load existing ports if re-running
+    existing_ports=""
+    [ -f "$GOST_PORTS" ] && existing_ports=$(tr '\n' ',' < "$GOST_PORTS" | sed 's/,$//')
+    [ -f "$GOST_CONF" ] && . "$GOST_CONF" 2>/dev/null
+    if [ -n "$existing_ports" ]; then
+        echo -e "  ${YELLOW}>> Current GOST ports${NC}  ${CYAN}$existing_ports${NC}"
+    fi
+    echo ""
+    echo -e "  Format: ${CYAN}listen_port=backend_port${NC} (comma separated)"
+    echo -e "  Example: ${CYAN}443=9321,80=8080,2070=2070${NC}"
+    echo ""
+    read -p "  New port(s) to add: " PORTS_INPUT
+
+    if [ -z "$PORTS_INPUT" ]; then
+        echo -e "  ${YELLOW}No input. Nothing changed.${NC}"
+        exit 0
+    fi
+
+    # Append new ports to list (avoid duplicates)
+    for pair in $(echo "$PORTS_INPUT" | tr ',' '\n'); do
+        pair=$(echo "$pair" | tr -d ' ')
+        [[ "$pair" =~ ^([0-9]+)=([0-9]+)$ ]] || continue
+        LPORT="${BASH_REMATCH[1]}"
+        BPORT="${BASH_REMATCH[2]}"
+        if [ -f "$GOST_PORTS" ] && grep -qx "${LPORT}=${BPORT}" "$GOST_PORTS" 2>/dev/null; then
+            echo -e "  ${YELLOW}Port ${LPORT}=${BPORT} already in config, skipped.${NC}"
+            continue
+        fi
+        mkdir -p "$GOST_DIR"
+        echo "${LPORT}=${BPORT}" >> "$GOST_PORTS"
+        echo -e "  ${GREEN}✓${NC} Port ${CYAN}${LPORT}${NC} → $BACKEND_IP:${BPORT} (${GOST_MODE})"
+    done
+
+    # Save mode and backend for service
+    mkdir -p "$GOST_DIR"
+    echo "GOST_MODE=$GOST_MODE" > "$GOST_CONF"
+    echo "BACKEND_IP=$BACKEND_IP" >> "$GOST_CONF"
+    [ -n "$CERT_FILE" ] && echo "CERT_FILE=$CERT_FILE" >> "$GOST_CONF"
+    [ -n "$KEY_FILE" ] && echo "KEY_FILE=$KEY_FILE" >> "$GOST_CONF"
+
+    # Build gost -L arguments from ports file
+    GOST_L_ARGS=()
+    while IFS='=' read -r LPORT BPORT; do
+        [ -z "$LPORT" ] && continue
+        case "$GOST_MODE" in
+            tcp)
+                GOST_L_ARGS+=(-L "tcp://:${LPORT}/${BACKEND_IP}:${BPORT}")
+                ;;
+            tls|wss|http2)
+                opts="certFile=${CERT_FILE}&keyFile=${KEY_FILE}"
+                GOST_L_ARGS+=(-L "${GOST_MODE}://:${LPORT}/${BACKEND_IP}:${BPORT}?${opts}")
+                ;;
+            *)
+                GOST_L_ARGS+=(-L "tcp://:${LPORT}/${BACKEND_IP}:${BPORT}")
+                ;;
+        esac
+    done < "$GOST_PORTS" 2>/dev/null
+
+    if [ ${#GOST_L_ARGS[@]} -eq 0 ]; then
+        echo -e "  ${YELLOW}No valid ports in config.${NC}"
+        exit 0
+    fi
+
+    # Systemd unit
+    cat > /etc/systemd/system/gost-gre.service << EOF
+[Unit]
+Description=GOST port forwarding (gre-haproxy evasion)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$GOST_CMD ${GOST_L_ARGS[*]}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable gost-gre
+    systemctl restart gost-gre
+    sleep 1
+    if systemctl is-active gost-gre &>/dev/null; then
+        echo ""
+        echo -e "  ${GREEN}GOST is running. Port forwarding active (mode: ${GOST_MODE}).${NC}"
+    else
+        echo -e "  ${RED}GOST failed to start. Check: journalctl -u gost-gre -n 30${NC}"
     fi
     echo ""
     exit 0
