@@ -5,7 +5,7 @@ Set up **multiple IRAN servers** → **one KHAREJ server** over GRE tunnels with
 ## Quick run (one-liner)
 
 ```bash
-sudo bash <(curl -sSL https://raw.githubusercontent.com/hosseinpv1379/gre-haproxy/main/setup-gre-haproxy.sh)
+bash <(curl -sSL https://raw.githubusercontent.com/hosseinpv1379/gre-haproxy/main/setup-gre-haproxy.sh)
 ```
 
 - On **KHAREJ**: choose 2, then enter the **new IRAN server public IP** (each run adds one tunnel; first run = first IRAN, next runs = add more).
