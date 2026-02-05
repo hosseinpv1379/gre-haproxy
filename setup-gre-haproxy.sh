@@ -60,7 +60,7 @@ echo "  1) IRAN - Setup (this server is one of the Iran servers)"
 echo "  2) KHAREJ - Setup (this server is the single Kharej server)"
 echo "  3) Remove - Remove GRE tunnel(s) and HAProxy from this server"
 echo "  4) Status - Show tunnel and HAProxy status"
-echo "  5) iperf3 test - Bandwidth test (10 connections, KHAREJ→IRAN)"
+echo "  5) iperf3 test - Bandwidth test (10 connections, IRAN→KHAREJ)"
 read -p "Choice (1, 2, 3, 4 or 5): " side_choice
 
 case "$side_choice" in
@@ -219,7 +219,7 @@ if [ "$SIDE" = "status" ]; then
     exit 0
 fi
 
-# ----- iperf3 test: 10 connections KHAREJ → IRAN -----
+# ----- iperf3 test: 10 connections IRAN (client) → KHAREJ (server) -----
 if [ "$SIDE" = "iperf" ]; then
     IPERF_DURATION=10
     IPERF_STREAMS=10
@@ -238,38 +238,24 @@ if [ "$SIDE" = "iperf" ]; then
         echo -e "${GREEN}iperf3 installed.${NC}"
     fi
 
-    if ip link show "${TUNNEL_IFACE_KHAREJ_PREFIX}1" &>/dev/null && [ -f "$CONFIG_FILE" ]; then
-        # This is KHAREJ: run client toward selected IRAN tunnel IP
-        N_IRAN=$(sed -n '2p' "$CONFIG_FILE")
-        N_IRAN=$((N_IRAN + 0))
-        if [ "$N_IRAN" -lt 1 ]; then
-            echo -e "${RED}No IRAN in config.${NC}"
+    # IRAN = client: run iperf3 -c toward KHAREJ tunnel IP (our backend = 10.10.x.2)
+    if ip link show "$TUNNEL_IFACE_IRAN" &>/dev/null; then
+        our_cidr=$(ip -4 addr show "$TUNNEL_IFACE_IRAN" 2>/dev/null | grep -oP 'inet \K[0-9.]+/[0-9]+')
+        if [ -z "$our_cidr" ]; then
+            echo -e "${RED}Could not get tunnel IP on $TUNNEL_IFACE_IRAN.${NC}"
             exit 1
         fi
-        echo -e "${CYAN}Which IRAN tunnel to test? (KHAREJ → IRAN, 10 streams, ${IPERF_DURATION}s)${NC}"
-        for i in $(seq 1 "$N_IRAN"); do
-            line=$((2 + i))
-            iran_ip=$(sed -n "${line}p" "$CONFIG_FILE")
-            peer=$(tunnel_iran_ip "$i")
-            echo -e "  ${GREEN}$i${NC}) IRAN #$i ($iran_ip) — tunnel IP ${CYAN}$peer${NC}"
-        done
-        read -p "Choice (1-$N_IRAN): " idx
-        idx=$((idx + 0))
-        if [ "$idx" -lt 1 ] || [ "$idx" -gt "$N_IRAN" ]; then
-            echo -e "${RED}Invalid choice.${NC}"
-            exit 1
-        fi
-        TARGET=$(tunnel_iran_ip "$idx")
+        TARGET=$(echo "$our_cidr" | cut -d'/' -f1 | sed 's/\.[0-9]*$/.2/')
         echo ""
-        echo -e "${YELLOW}Testing KHAREJ → IRAN #$idx ($TARGET) — ${IPERF_STREAMS} streams, ${IPERF_DURATION}s...${NC}"
-        echo -e "${YELLOW}(Ensure iperf3 server is running on IRAN: run this script on IRAN and choose 5 → Start server)${NC}"
+        echo -e "${YELLOW}Testing IRAN → KHAREJ (this machine = client, KHAREJ = server at ${CYAN}$TARGET${NC})"
+        echo -e "${YELLOW}${IPERF_STREAMS} streams, ${IPERF_DURATION}s. Ensure iperf3 server is running on KHAREJ (run this script on KHAREJ → 5 → Start server).${NC}"
         echo ""
 
         tmpjson=$(mktemp)
         tmpjson_err="${tmpjson}.err"
         trap 'rm -f "$tmpjson" "$tmpjson_err" 2>/dev/null' EXIT
         if iperf3 -c "$TARGET" -P "$IPERF_STREAMS" -t "$IPERF_DURATION" -J 2>"$tmpjson_err" >"$tmpjson"; then
-            # Parse JSON: end.sum_received.bits_per_second (receiver = IRAN = bandwidth KHAREJ→IRAN)
+            # sum_received = what KHAREJ (server) received = what IRAN (client) sent = IRAN→KHAREJ bandwidth
             bps=""
             if command -v jq &>/dev/null; then
                 bps=$(jq -r '.end.sum_received.bits_per_second // empty' "$tmpjson" 2>/dev/null)
@@ -285,7 +271,7 @@ if [ "$SIDE" = "iperf" ]; then
                 mbs=$(awk "BEGIN { printf \"%.2f\", $bps/8/1e6 }")
                 echo ""
                 echo -e "  ${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
-                echo -e "  ${GREEN}║${NC}     ${CYAN}iperf3${NC}  •  ${IPERF_STREAMS} connections  •  ${IPERF_DURATION}s  •  KHAREJ → IRAN #$idx       ${GREEN}║${NC}"
+                echo -e "  ${GREEN}║${NC}     ${CYAN}iperf3${NC}  •  ${IPERF_STREAMS} connections  •  ${IPERF_DURATION}s  •  IRAN → KHAREJ       ${GREEN}║${NC}"
                 echo -e "  ${GREEN}╠════════════════════════════════════════════════════════════╣${NC}"
                 echo -e "  ${GREEN}║${NC}                                                                ${GREEN}║${NC}"
                 echo -e "  ${GREEN}║${NC}     ${YELLOW}Bandwidth${NC}   ${CYAN}${gbps}${NC} Gbit/s                                    ${GREEN}║${NC}"
@@ -298,18 +284,18 @@ if [ "$SIDE" = "iperf" ]; then
                 iperf3 -c "$TARGET" -P "$IPERF_STREAMS" -t "$IPERF_DURATION" 2>/dev/null || true
             fi
         else
-            echo -e "${RED}iperf3 failed. Is iperf3 server running on IRAN? (run this script on IRAN → 5 → Start server)${NC}"
+            echo -e "${RED}iperf3 failed. Is iperf3 server running on KHAREJ? (run this script on KHAREJ → 5 → Start server)${NC}"
             [ -s "$tmpjson_err" ] && cat "$tmpjson_err"
         fi
         exit 0
     fi
 
-    if ip link show "$TUNNEL_IFACE_IRAN" &>/dev/null; then
-        # This is IRAN: start iperf3 server so KHAREJ can run the test
-        echo -e "${CYAN}Start iperf3 server on this IRAN so KHAREJ can run the bandwidth test.${NC}"
+    # KHAREJ = server: start iperf3 -s so IRAN can connect and test
+    if ip link show "${TUNNEL_IFACE_KHAREJ_PREFIX}1" &>/dev/null; then
+        echo -e "${CYAN}Start iperf3 server on this KHAREJ so IRAN can run the bandwidth test (IRAN = client).${NC}"
         read -p "Run server for 90 seconds? (y/n): " run_srv
         if [[ "$run_srv" =~ ^[yY] ]]; then
-            echo -e "${GREEN}Starting iperf3 server (listening on 0.0.0.0:5201). Run test from KHAREJ within 90s.${NC}"
+            echo -e "${GREEN}Starting iperf3 server (listening on 0.0.0.0:5201). Run test from IRAN within 90s (option 5).${NC}"
             echo ""
             timeout 90 iperf3 -s -1 2>/dev/null || timeout 90 iperf3 -s
             echo -e "${GREEN}Server stopped.${NC}"
