@@ -705,8 +705,10 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=$GOST_BIN -L "tunnel://:${TPORT}?entrypoint=:${EPORT}&tunnel=${REV_HOST}:${TUNNEL_ID}"
-Restart=on-failure
-RestartSec=5
+Restart=always
+RestartSec=15
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target
@@ -728,7 +730,8 @@ EOF
         # ---- Client (IRAN) ----
         echo ""
         echo -e "  ${YELLOW}>> Client connects to the tunnel Server and forwards traffic to local service (e.g. V2Ray).${NC}"
-        read -p "  Server address (tunnel server IP or domain:port, e.g. 1.2.3.4:8443): " REV_SERVER
+        echo -e "  ${DIM}(Use tunnel server IP:port for stability, e.g. 1.2.3.4:8443)${NC}"
+        read -p "  Server address (tunnel server IP or domain:port): " REV_SERVER
         REV_SERVER=$(echo "$REV_SERVER" | tr -d ' ')
         [ -z "$REV_SERVER" ] && { echo -e "  ${RED}Server address required.${NC}"; exit 1; }
         read -p "  Tunnel ID (must match server): " TUNNEL_ID
@@ -741,7 +744,8 @@ EOF
         echo "SERVER=$REV_SERVER" >> "$GOST_REVERSE_CONF"
         echo "TUNNEL_ID=$TUNNEL_ID" >> "$GOST_REVERSE_CONF"
         echo "LOCAL_TARGET=$LOCAL_TARGET" >> "$GOST_REVERSE_CONF"
-        # gost -L rtcp://:0/127.0.0.1:80 -F "tunnel://SERVER:8443?tunnel.id=UUID"
+        # tunnel.weight=255: prefer this client; helps with single-client stability
+        # gost -L rtcp://:0/127.0.0.1:80 -F "tunnel://SERVER:8443?tunnel.id=UUID&tunnel.weight=255"
         cat > /etc/systemd/system/gost-reverse-tunnel.service << EOF
 [Unit]
 Description=GOST reverse tunnel client (forwards to local service)
@@ -749,9 +753,11 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=$GOST_BIN -L rtcp://:0/${LOCAL_TARGET} -F "tunnel://${REV_SERVER}?tunnel.id=${TUNNEL_ID}"
-Restart=on-failure
-RestartSec=5
+ExecStart=$GOST_BIN -L rtcp://:0/${LOCAL_TARGET} -F "tunnel://${REV_SERVER}?tunnel.id=${TUNNEL_ID}&tunnel.weight=255"
+Restart=always
+RestartSec=15
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target

@@ -193,6 +193,22 @@ Use the same UUID on both sides. Replace `127.0.0.1:80` with your desired local 
 
 ---
 
+### Tunnel stability (if the tunnel drops suddenly)
+
+The script configures the GOST reverse tunnel service with:
+
+- **Restart=always** and **RestartSec=15** so that if the process exits (e.g. connection closed), systemd restarts it.
+- **StartLimitIntervalSec=300** and **StartLimitBurst=5** to avoid endless restart loops if something is wrong.
+- **tunnel.weight=255** on the client so the server prefers this client’s connection.
+
+To reduce random disconnects:
+
+1. **Use the tunnel server’s IP** (not a domain) as the client’s “Server address” when possible, to avoid DNS or resolution issues.
+2. **Firewall / NAT:** Long-lived TCP between Iran and Germany can be dropped by middleboxes (NAT timeout, stateful firewall). If the tunnel port is only used by the other server, allow that and avoid aggressive “idle timeout” rules on that connection.
+3. **Check logs:** `journalctl -u gost-reverse-tunnel -f` on both sides to see disconnects or errors.
+
+---
+
 ### Troubleshooting
 
 | Problem | What to check |
@@ -201,6 +217,7 @@ Use the same UUID on both sides. Replace `127.0.0.1:80` with your desired local 
 | Visitor gets connection refused | Firewall on the outside server: allow the **entrypoint port** (e.g. 80). DNS: hostname must point to the outside server’s IP. |
 | Visitor connects but no response | On Iran, check that the **local target** (e.g. 127.0.0.1:80) is listening and responds. Test locally on the Iran server: `curl http://127.0.0.1:80`. |
 | Tunnel ID mismatch | Tunnel ID on the client must be **exactly** the same as on the server (copy-paste the UUID). |
+| Tunnel drops often | Prefer **IP** for client “Server address”; check firewall/NAT idle timeout; see “Tunnel stability” above. |
 
 Official docs: [GOST – Reverse Proxy Tunnel](https://gost.run/en/tutorials/reverse-proxy-tunnel/).
 
