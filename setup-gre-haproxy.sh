@@ -91,7 +91,7 @@ echo -e "  ${CYAN}  |${NC}  ${YELLOW}4${NC}) Status   - Show tunnel and HAProxy 
 echo -e "  ${CYAN}  |${NC}  ${YELLOW}5${NC}) iperf3   - Bandwidth test (IRAN -> KHAREJ)"
 echo -e "  ${CYAN}  |${NC}  ${YELLOW}6${NC}) HAProxy  - Add port forwarding (IRAN only)"
 echo -e "  ${CYAN}  |${NC}  ${YELLOW}7${NC}) GOST    - Port forwarding TCP (IRAN only)"
-echo -e "  ${CYAN}  |${NC}  ${YELLOW}8${NC}) Reverse - GOST reverse tunnel (outside -> Iran)"
+echo -e "  ${CYAN}  |${NC}  ${YELLOW}8${NC}) Reverse - GOST reverse tunnel (Server/Client by role; see README)"
 echo -e "  ${CYAN}  +---------------------------------------------${NC}"
 echo ""
 read -p "  Choice (1-8): " side_choice
@@ -636,7 +636,8 @@ EOF
     exit 0
 fi
 
-# ----- GOST Reverse Tunnel (outside -> Iran): Server on KHAREJ, Client on IRAN -----
+# ----- GOST Reverse Tunnel: Server = entrypoint, Client = where local service runs -----
+# e.g. "V2Ray on Germany, address Iran" => Server on IRAN, Client on KHAREJ
 GOST_REVERSE_DIR="/etc/gost-reverse-tunnel"
 GOST_REVERSE_CONF="$GOST_REVERSE_DIR/config"
 if [ "$SIDE" = "gost-reverse" ]; then
@@ -698,7 +699,7 @@ if [ "$SIDE" = "gost-reverse" ]; then
         REV_CMD="$GOST_BIN -L \"tunnel://:${TPORT}?entrypoint=:${EPORT}&tunnel=${REV_HOST}:${TUNNEL_ID}\""
         cat > /etc/systemd/system/gost-reverse-tunnel.service << EOF
 [Unit]
-Description=GOST reverse tunnel server (outside)
+Description=GOST reverse tunnel server (entrypoint for visitors)
 After=network.target
 
 [Service]
@@ -743,7 +744,7 @@ EOF
         # gost -L rtcp://:0/127.0.0.1:80 -F "tunnel://SERVER:8443?tunnel.id=UUID"
         cat > /etc/systemd/system/gost-reverse-tunnel.service << EOF
 [Unit]
-Description=GOST reverse tunnel client (Iran)
+Description=GOST reverse tunnel client (forwards to local service)
 After=network.target
 
 [Service]
