@@ -91,9 +91,10 @@ echo -e "  ${CYAN}  |${NC}  ${YELLOW}4${NC}) Status   - Show tunnel and HAProxy 
 echo -e "  ${CYAN}  |${NC}  ${YELLOW}5${NC}) iperf3   - Bandwidth test (IRAN -> KHAREJ)"
 echo -e "  ${CYAN}  |${NC}  ${YELLOW}6${NC}) HAProxy  - Add port forwarding (IRAN only)"
 echo -e "  ${CYAN}  |${NC}  ${YELLOW}7${NC}) GOST    - Port forwarding TCP (IRAN only)"
+echo -e "  ${CYAN}  |${NC}  ${YELLOW}8${NC}) Reverse - GOST reverse tunnel (outside -> Iran)"
 echo -e "  ${CYAN}  +---------------------------------------------${NC}"
 echo ""
-read -p "  Choice (1-7): " side_choice
+read -p "  Choice (1-8): " side_choice
 
 case "$side_choice" in
     1) SIDE="iran";;
@@ -103,6 +104,7 @@ case "$side_choice" in
     5) SIDE="iperf";;
     6) SIDE="haproxy";;
     7) SIDE="gost";;
+    8) SIDE="gost-reverse";;
     *)
         echo -e "  ${RED}Invalid choice.${NC}"
         exit 1
@@ -130,6 +132,15 @@ if [ "$SIDE" = "remove" ]; then
             fi
         done
         [ -f "$CONFIG_FILE" ] && rm -f "$CONFIG_FILE" && echo -e "  ${GREEN}Done.${NC} Config file removed."
+        read -p "  Also remove GOST reverse tunnel server (gost-reverse-tunnel)? (y/n): " remove_reverse_k
+        if [[ "$remove_reverse_k" =~ ^[yY] ]]; then
+            systemctl stop gost-reverse-tunnel 2>/dev/null || true
+            systemctl disable gost-reverse-tunnel 2>/dev/null || true
+            rm -f /etc/systemd/system/gost-reverse-tunnel.service
+            systemctl daemon-reload 2>/dev/null || true
+            rm -rf /etc/gost-reverse-tunnel
+            echo -e "  ${GREEN}Done.${NC} GOST reverse tunnel removed."
+        fi
     else
         if ip link show "$TUNNEL_IFACE_IRAN" &>/dev/null; then
             echo -e "  ${YELLOW}Removing $TUNNEL_IFACE_IRAN...${NC}"
@@ -170,6 +181,15 @@ EOF
             systemctl daemon-reload 2>/dev/null || true
             rm -rf /etc/gost-gre
             echo -e "  ${GREEN}Done.${NC} GOST service, config and local certs removed."
+        fi
+        read -p "  Also remove GOST reverse tunnel (gost-reverse-tunnel)? (y/n): " remove_reverse
+        if [[ "$remove_reverse" =~ ^[yY] ]]; then
+            systemctl stop gost-reverse-tunnel 2>/dev/null || true
+            systemctl disable gost-reverse-tunnel 2>/dev/null || true
+            rm -f /etc/systemd/system/gost-reverse-tunnel.service
+            systemctl daemon-reload 2>/dev/null || true
+            rm -rf /etc/gost-reverse-tunnel
+            echo -e "  ${GREEN}Done.${NC} GOST reverse tunnel removed."
         fi
     fi
 
@@ -260,6 +280,11 @@ if [ "$SIDE" = "status" ]; then
         echo -e "  ${CYAN}|${NC} ${YELLOW}GOST${NC}      ${GREEN}Running${NC} (TCP port forwarding)                      ${CYAN}|${NC}"
     else
         echo -e "  ${CYAN}|${NC} ${YELLOW}GOST${NC}      ${YELLOW}Not running${NC} (or not configured)                   ${CYAN}|${NC}"
+    fi
+    if systemctl is-active gost-reverse-tunnel &>/dev/null 2>/dev/null; then
+        echo -e "  ${CYAN}|${NC} ${YELLOW}Reverse${NC}   ${GREEN}Running${NC} (GOST reverse tunnel)                       ${CYAN}|${NC}"
+    else
+        echo -e "  ${CYAN}|${NC} ${YELLOW}Reverse${NC}   ${YELLOW}Not running${NC} (or not configured)                   ${CYAN}|${NC}"
     fi
     if [ -f "$RCLOCAL" ] && grep -q "$GRE_MARKER_START" "$RCLOCAL" 2>/dev/null; then
         echo -e "  ${CYAN}|${NC} ${YELLOW}Boot${NC}      ${GREEN}Tunnels in rc.local${NC} (will restore after reboot)  ${CYAN}|${NC}"
@@ -609,6 +634,142 @@ EOF
     fi
     echo ""
     exit 0
+fi
+
+# ----- GOST Reverse Tunnel (outside -> Iran): Server on KHAREJ, Client on IRAN -----
+GOST_REVERSE_DIR="/etc/gost-reverse-tunnel"
+GOST_REVERSE_CONF="$GOST_REVERSE_DIR/config"
+if [ "$SIDE" = "gost-reverse" ]; then
+    GOST_BIN="/usr/local/bin/gost"
+    if ! command -v gost &>/dev/null && [ ! -x "$GOST_BIN" ]; then
+        echo -e "  ${YELLOW}Installing GOST...${NC}"
+        GOST_VER="3.2.6"
+        ARCH=$(uname -m)
+        case "$ARCH" in x86_64|amd64) GOST_ARCH="amd64";; aarch64|arm64) GOST_ARCH="arm64";; armv7l|armhf) GOST_ARCH="armv7";; i386|i686) GOST_ARCH="386";; *) GOST_ARCH="amd64";; esac
+        GURL="https://github.com/go-gost/gost/releases/download/v${GOST_VER}/gost_${GOST_VER}_linux_${GOST_ARCH}.tar.gz"
+        tmpdir=$(mktemp -d)
+        trap "rm -rf $tmpdir" EXIT
+        if ! curl -sSLf -o "$tmpdir/gost.tar.gz" "$GURL" 2>/dev/null; then
+            echo -e "  ${RED}Download failed. Try: wget $GURL${NC}"
+            exit 1
+        fi
+        tar -xzf "$tmpdir/gost.tar.gz" -C "$tmpdir"
+        mkdir -p /usr/local/bin
+        if [ -f "$tmpdir/gost" ]; then cp -f "$tmpdir/gost" "$GOST_BIN"; else find "$tmpdir" -maxdepth 2 -type f -name gost -exec cp -f {} "$GOST_BIN" \;; fi
+        chmod +x "$GOST_BIN"
+        [ ! -x "$GOST_BIN" ] && echo -e "  ${RED}GOST install failed.${NC}" && exit 1
+        echo -e "  ${GREEN}GOST installed.${NC}"
+    fi
+    [ -x "$GOST_BIN" ] || { echo -e "  ${RED}GOST not found at $GOST_BIN${NC}"; exit 1; }
+
+    echo ""
+    echo -e "  ${CYAN}╔════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "  ${CYAN}║${NC}   ${GREEN}GOST Reverse Tunnel${NC}  (connection from outside -> Iran)         ${CYAN}║${NC}"
+    echo -e "  ${CYAN}╚════════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${CYAN}  |${NC}  ${GREEN}1${NC}) Server (KHAREJ / outside) - accept visitors, send to Iran"
+    echo -e "  ${CYAN}  |${NC}  ${GREEN}2${NC}) Client (IRAN) - connect out, forward to local service"
+    echo -e "  ${CYAN}  +------------------------------------------------------------------${NC}"
+    read -p "  Server or Client? (1 or 2): " rev_side
+
+    if [ "$rev_side" = "1" ]; then
+        # ---- Server (KHAREJ) ----
+        echo ""
+        echo -e "  ${YELLOW}>> Server runs on KHAREJ (outside). Visitors connect here; traffic goes to Iran client.${NC}"
+        read -p "  Entrypoint port (public, e.g. 80) [80]: " EPORT
+        EPORT=${EPORT:-80}
+        read -p "  Tunnel service port (e.g. 8443) [8443]: " TPORT
+        TPORT=${TPORT:-8443}
+        read -p "  Hostname for this tunnel (e.g. iran.example.com): " REV_HOST
+        REV_HOST=$(echo "$REV_HOST" | tr -d ' ')
+        [ -z "$REV_HOST" ] && REV_HOST="reverse.local"
+        read -p "  Tunnel ID (UUID, or press Enter to generate): " TUNNEL_ID
+        if [ -z "$TUNNEL_ID" ]; then
+            TUNNEL_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "4d21094e-b74c-4916-86c1-d9fa36ea677b")
+        fi
+        mkdir -p "$GOST_REVERSE_DIR"
+        echo "ROLE=server" > "$GOST_REVERSE_CONF"
+        echo "ENTRYPOINT_PORT=$EPORT" >> "$GOST_REVERSE_CONF"
+        echo "TUNNEL_PORT=$TPORT" >> "$GOST_REVERSE_CONF"
+        echo "HOSTNAME=$REV_HOST" >> "$GOST_REVERSE_CONF"
+        echo "TUNNEL_ID=$TUNNEL_ID" >> "$GOST_REVERSE_CONF"
+        # gost -L "tunnel://:8443?entrypoint=:80&tunnel=hostname:UUID"
+        REV_CMD="$GOST_BIN -L \"tunnel://:${TPORT}?entrypoint=:${EPORT}&tunnel=${REV_HOST}:${TUNNEL_ID}\""
+        cat > /etc/systemd/system/gost-reverse-tunnel.service << EOF
+[Unit]
+Description=GOST reverse tunnel server (outside)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$GOST_BIN -L "tunnel://:${TPORT}?entrypoint=:${EPORT}&tunnel=${REV_HOST}:${TUNNEL_ID}"
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable gost-reverse-tunnel
+        systemctl restart gost-reverse-tunnel
+        sleep 1
+        echo ""
+        echo -e "  ${GREEN}Reverse tunnel server is running.${NC}"
+        echo -e "  ${DIM}On IRAN (client) run this script, option 8, then choose 2 (Client) and use:${NC}"
+        echo -e "  ${CYAN}Tunnel ID: ${TUNNEL_ID}${NC}"
+        echo -e "  ${DIM}Server address: THIS_SERVER_IP:${TPORT}${NC}"
+        echo ""
+        exit 0
+    fi
+
+    if [ "$rev_side" = "2" ]; then
+        # ---- Client (IRAN) ----
+        echo ""
+        echo -e "  ${YELLOW}>> Client runs on IRAN. Connects to KHAREJ and forwards traffic to local service.${NC}"
+        read -p "  Server address (KHAREJ IP or domain:port, e.g. 1.2.3.4:8443): " REV_SERVER
+        REV_SERVER=$(echo "$REV_SERVER" | tr -d ' ')
+        [ -z "$REV_SERVER" ] && { echo -e "  ${RED}Server address required.${NC}"; exit 1; }
+        read -p "  Tunnel ID (must match server): " TUNNEL_ID
+        TUNNEL_ID=$(echo "$TUNNEL_ID" | tr -d ' ')
+        [ -z "$TUNNEL_ID" ] && { echo -e "  ${RED}Tunnel ID required.${NC}"; exit 1; }
+        read -p "  Local target (e.g. 127.0.0.1:80 or 192.168.1.1:443) [127.0.0.1:80]: " LOCAL_TARGET
+        LOCAL_TARGET=${LOCAL_TARGET:-127.0.0.1:80}
+        mkdir -p "$GOST_REVERSE_DIR"
+        echo "ROLE=client" > "$GOST_REVERSE_CONF"
+        echo "SERVER=$REV_SERVER" >> "$GOST_REVERSE_CONF"
+        echo "TUNNEL_ID=$TUNNEL_ID" >> "$GOST_REVERSE_CONF"
+        echo "LOCAL_TARGET=$LOCAL_TARGET" >> "$GOST_REVERSE_CONF"
+        # gost -L rtcp://:0/127.0.0.1:80 -F "tunnel://SERVER:8443?tunnel.id=UUID"
+        cat > /etc/systemd/system/gost-reverse-tunnel.service << EOF
+[Unit]
+Description=GOST reverse tunnel client (Iran)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$GOST_BIN -L rtcp://:0/${LOCAL_TARGET} -F "tunnel://${REV_SERVER}?tunnel.id=${TUNNEL_ID}"
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable gost-reverse-tunnel
+        systemctl restart gost-reverse-tunnel
+        sleep 1
+        echo ""
+        if systemctl is-active gost-reverse-tunnel &>/dev/null; then
+            echo -e "  ${GREEN}Reverse tunnel client is running. Traffic from outside -> server -> this host -> ${LOCAL_TARGET}${NC}"
+        else
+            echo -e "  ${RED}Failed to start. Check: journalctl -u gost-reverse-tunnel -n 30${NC}"
+        fi
+        echo ""
+        exit 0
+    fi
+
+    echo -e "  ${RED}Invalid. Choose 1 (Server) or 2 (Client).${NC}"
+    exit 1
 fi
 
 # ----- KHAREJ: add one IRAN tunnel -----
