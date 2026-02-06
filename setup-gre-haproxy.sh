@@ -678,14 +678,15 @@ if [ "$SIDE" = "gost-reverse" ]; then
         # ---- Server (KHAREJ) ----
         echo ""
         echo -e "  ${YELLOW}>> Server = entrypoint. Visitors connect here; traffic is sent to the Client.${NC}"
-        read -p "  Entrypoint port (public, e.g. 80) [80]: " EPORT
-        EPORT=${EPORT:-80}
-        read -p "  Tunnel service port (e.g. 8443) [8443]: " TPORT
+        echo ""
+        read -p "  Config Port (port users will use in config, e.g. 5050 or 443) [5050]: " EPORT
+        EPORT=${EPORT:-5050}
+        read -p "  Tunnel Port (internal port for client connection, e.g. 8443) [8443]: " TPORT
         TPORT=${TPORT:-8443}
-        read -p "  Hostname for this tunnel (e.g. iran.example.com): " REV_HOST
+        read -p "  Hostname for this tunnel (e.g. proxy.example.com) [Enter for default]: " REV_HOST
         REV_HOST=$(echo "$REV_HOST" | tr -d ' ')
         [ -z "$REV_HOST" ] && REV_HOST="reverse.local"
-        read -p "  Tunnel ID (UUID, or press Enter to generate): " TUNNEL_ID
+        read -p "  Tunnel ID (UUID - press Enter to auto-generate): " TUNNEL_ID
         if [ -z "$TUNNEL_ID" ]; then
             TUNNEL_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "4d21094e-b74c-4916-86c1-d9fa36ea677b")
         fi
@@ -718,10 +719,11 @@ EOF
         systemctl restart gost-reverse-tunnel
         sleep 1
         echo ""
-        echo -e "  ${GREEN}Reverse tunnel server is running.${NC}"
-        echo -e "  ${DIM}On the other server (Client) run this script, option 8, then choose 2 (Client) and use:${NC}"
+        echo -e "  ${GREEN}✓ Reverse tunnel server is running.${NC}"
+        echo ""
+        echo -e "  ${YELLOW}On the other server (Client) run this script, option 8, then choose 2 (Client) and use:${NC}"
         echo -e "  ${CYAN}Tunnel ID: ${TUNNEL_ID}${NC}"
-        echo -e "  ${DIM}Server address: THIS_MACHINE_IP:${TPORT}  (this machine = tunnel server)${NC}"
+        echo -e "  ${CYAN}Server address: ${MY_IP:-THIS_SERVER_IP}:${TPORT}${NC}"
         echo ""
         exit 0
     fi
@@ -730,15 +732,16 @@ EOF
         # ---- Client (IRAN) ----
         echo ""
         echo -e "  ${YELLOW}>> Client connects to the tunnel Server and forwards traffic to local service (e.g. V2Ray).${NC}"
-        echo -e "  ${DIM}(Use tunnel server IP:port for stability, e.g. 1.2.3.4:8443)${NC}"
-        read -p "  Server address (tunnel server IP or domain:port): " REV_SERVER
+        echo ""
+        echo -e "  ${DIM}(Use tunnel server IP for stability, e.g. 1.2.3.4:8443)${NC}"
+        read -p "  Tunnel Server Address (tunnel server IP or domain:Tunnel Port, e.g. 1.2.3.4:8443): " REV_SERVER
         REV_SERVER=$(echo "$REV_SERVER" | tr -d ' ')
-        [ -z "$REV_SERVER" ] && { echo -e "  ${RED}Server address required.${NC}"; exit 1; }
-        read -p "  Tunnel ID (must match server): " TUNNEL_ID
+        [ -z "$REV_SERVER" ] && { echo -e "  ${RED}Tunnel server address is required.${NC}"; exit 1; }
+        read -p "  Tunnel ID (same UUID from server): " TUNNEL_ID
         TUNNEL_ID=$(echo "$TUNNEL_ID" | tr -d ' ')
-        [ -z "$TUNNEL_ID" ] && { echo -e "  ${RED}Tunnel ID required.${NC}"; exit 1; }
-        read -p "  Local target (e.g. 127.0.0.1:80 or 192.168.1.1:443) [127.0.0.1:80]: " LOCAL_TARGET
-        LOCAL_TARGET=${LOCAL_TARGET:-127.0.0.1:80}
+        [ -z "$TUNNEL_ID" ] && { echo -e "  ${RED}Tunnel ID is required.${NC}"; exit 1; }
+        read -p "  Local Target (local service address:port, e.g. 127.0.0.1:5050 for V2Ray) [127.0.0.1:5050]: " LOCAL_TARGET
+        LOCAL_TARGET=${LOCAL_TARGET:-127.0.0.1:5050}
         mkdir -p "$GOST_REVERSE_DIR"
         echo "ROLE=client" > "$GOST_REVERSE_CONF"
         echo "SERVER=$REV_SERVER" >> "$GOST_REVERSE_CONF"
@@ -768,9 +771,10 @@ EOF
         sleep 1
         echo ""
         if systemctl is-active gost-reverse-tunnel &>/dev/null; then
-            echo -e "  ${GREEN}Reverse tunnel client is running. Traffic from outside -> server -> this host -> ${LOCAL_TARGET}${NC}"
+            echo -e "  ${GREEN}✓ Reverse tunnel client is running.${NC}"
+            echo -e "  ${DIM}Traffic path: visitor → tunnel server → this server → ${LOCAL_TARGET}${NC}"
         else
-            echo -e "  ${RED}Failed to start. Check: journalctl -u gost-reverse-tunnel -n 30${NC}"
+            echo -e "  ${RED}✗ Failed to start. Check: journalctl -u gost-reverse-tunnel -n 30${NC}"
         fi
         echo ""
         exit 0
