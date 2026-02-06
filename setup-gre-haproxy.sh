@@ -664,18 +664,19 @@ if [ "$SIDE" = "gost-reverse" ]; then
 
     echo ""
     echo -e "  ${CYAN}╔════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "  ${CYAN}║${NC}   ${GREEN}GOST Reverse Tunnel${NC}  (connection from outside -> Iran)         ${CYAN}║${NC}"
+    echo -e "  ${CYAN}║${NC}   ${GREEN}GOST Reverse Tunnel${NC}  (outside <-> Iran)                        ${CYAN}║${NC}"
     echo -e "  ${CYAN}╚════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  ${CYAN}  |${NC}  ${GREEN}1${NC}) Server (KHAREJ / outside) - accept visitors, send to Iran"
-    echo -e "  ${CYAN}  |${NC}  ${GREEN}2${NC}) Client (IRAN) - connect out, forward to local service"
+    echo -e "  ${CYAN}  |${NC}  ${GREEN}1${NC}) Server - run where visitors connect (entrypoint)"
+    echo -e "  ${CYAN}  |${NC}  ${GREEN}2${NC}) Client - run where the local service (e.g. V2Ray) is"
+    echo -e "  ${CYAN}  |${NC}  ${DIM}  For \"V2Ray on Germany, address Iran\": run 1 on IRAN, 2 on KHAREJ (see README).${NC}"
     echo -e "  ${CYAN}  +------------------------------------------------------------------${NC}"
     read -p "  Server or Client? (1 or 2): " rev_side
 
     if [ "$rev_side" = "1" ]; then
         # ---- Server (KHAREJ) ----
         echo ""
-        echo -e "  ${YELLOW}>> Server runs on KHAREJ (outside). Visitors connect here; traffic goes to Iran client.${NC}"
+        echo -e "  ${YELLOW}>> Server = entrypoint. Visitors connect here; traffic is sent to the Client.${NC}"
         read -p "  Entrypoint port (public, e.g. 80) [80]: " EPORT
         EPORT=${EPORT:-80}
         read -p "  Tunnel service port (e.g. 8443) [8443]: " TPORT
@@ -715,9 +716,9 @@ EOF
         sleep 1
         echo ""
         echo -e "  ${GREEN}Reverse tunnel server is running.${NC}"
-        echo -e "  ${DIM}On IRAN (client) run this script, option 8, then choose 2 (Client) and use:${NC}"
+        echo -e "  ${DIM}On the other server (Client) run this script, option 8, then choose 2 (Client) and use:${NC}"
         echo -e "  ${CYAN}Tunnel ID: ${TUNNEL_ID}${NC}"
-        echo -e "  ${DIM}Server address: THIS_SERVER_IP:${TPORT}${NC}"
+        echo -e "  ${DIM}Server address: THIS_MACHINE_IP:${TPORT}  (this machine = tunnel server)${NC}"
         echo ""
         exit 0
     fi
@@ -725,8 +726,8 @@ EOF
     if [ "$rev_side" = "2" ]; then
         # ---- Client (IRAN) ----
         echo ""
-        echo -e "  ${YELLOW}>> Client runs on IRAN. Connects to KHAREJ and forwards traffic to local service.${NC}"
-        read -p "  Server address (KHAREJ IP or domain:port, e.g. 1.2.3.4:8443): " REV_SERVER
+        echo -e "  ${YELLOW}>> Client connects to the tunnel Server and forwards traffic to local service (e.g. V2Ray).${NC}"
+        read -p "  Server address (tunnel server IP or domain:port, e.g. 1.2.3.4:8443): " REV_SERVER
         REV_SERVER=$(echo "$REV_SERVER" | tr -d ' ')
         [ -z "$REV_SERVER" ] && { echo -e "  ${RED}Server address required.${NC}"; exit 1; }
         read -p "  Tunnel ID (must match server): " TUNNEL_ID

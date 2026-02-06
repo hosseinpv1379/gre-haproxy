@@ -125,6 +125,54 @@ Config and service files under `/etc/gost-reverse-tunnel/` and `gost-reverse-tun
 
 ---
 
+### Use case: V2Ray on Germany, config address = Iran (users connect to Iran, traffic goes to Germany)
+
+You have **V2Ray installed on the Germany server**, but you want the **config address to be Iran** so that users connect to Iran and traffic is sent through the reverse tunnel to Germany (where V2Ray runs). That is exactly what the reverse tunnel does when you put the **Server on Iran** and the **Client on Germany**.
+
+**Flow:** User (with V2Ray config) → connects to **Iran** (tunnel server) → tunnel → **Germany** (tunnel client) → **V2Ray** on Germany.
+
+So in the script you choose **Server** on the **Iran** machine and **Client** on the **Germany** machine (opposite of “outside = server, Iran = client” in the generic guide above).
+
+#### Step-by-step for this setup
+
+**1. On the IRAN server (tunnel server – users connect here)**
+
+- Run the script → choose **8** (Reverse) → choose **1** (Server).
+- **Entrypoint port:** the port users will use in their V2Ray config (e.g. **443** or **10085**). Open this port in the Iran server firewall.
+- **Tunnel service port:** e.g. **8443**. Open it for the Germany server’s IP (or 0.0.0.0).
+- **Hostname:** a domain that points to the **Iran server’s IP** (e.g. `proxy.iransite.com`). Users can use either this hostname or the Iran server IP in their config.
+- **Tunnel ID:** press Enter to generate, or type your own UUID. **Copy this Tunnel ID** and the line **Server address: IRAN_IP:8443** (or the tunnel port you chose).
+
+**2. On the GERMANY server (tunnel client – V2Ray runs here)**
+
+- Run the script → choose **8** (Reverse) → choose **2** (Client).
+- **Server address:** **Iran server IP** and the tunnel port (e.g. `IRAN_IP:8443`). Germany must be able to reach this (Iran firewall must allow Germany IP on the tunnel port).
+- **Tunnel ID:** paste the **same UUID** you got on the Iran server.
+- **Local target:** the address and port where **V2Ray** listens on Germany (e.g. `127.0.0.1:10085` or `127.0.0.1:443`). Check your V2Ray config for the inbound port.
+
+**3. Give users the V2Ray config**
+
+- **Address:** Iran server **IP** or the **hostname** you set (e.g. `proxy.iransite.com`).
+- **Port:** the **entrypoint port** you set on Iran (e.g. 443 or 10085).
+- Rest of the config (UUID, alterId, etc.) is from your V2Ray as usual.
+
+So the “server” in the user’s config is **Iran**; the reverse tunnel carries the traffic to **Germany** where V2Ray is actually running.
+
+**4. Firewall summary**
+
+| Where   | Port to open        | For whom        |
+|---------|---------------------|------------------|
+| Iran    | Entrypoint (e.g. 443) | Users (0.0.0.0) |
+| Iran    | Tunnel port (e.g. 8443) | Germany server IP |
+| Germany | No need to open for users | — (users never connect to Germany directly) |
+
+**5. Check**
+
+- On Germany: `systemctl status gost-reverse-tunnel` → active. V2Ray listening on the port you used as local target.
+- User: set config to Iran address + entrypoint port; connect. Traffic path: User → Iran → tunnel → Germany → V2Ray.
+
+---
+
 ### Manual commands (without the script)
 
 If you prefer to run GOST by hand:
