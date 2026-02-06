@@ -90,7 +90,7 @@ echo -e "  ${CYAN}  |${NC}  ${YELLOW}3${NC}) Remove   - Remove tunnels / HAProxy
 echo -e "  ${CYAN}  |${NC}  ${YELLOW}4${NC}) Status   - Show tunnel and HAProxy status"
 echo -e "  ${CYAN}  |${NC}  ${YELLOW}5${NC}) iperf3   - Bandwidth test (IRAN -> KHAREJ)"
 echo -e "  ${CYAN}  |${NC}  ${YELLOW}6${NC}) HAProxy  - Add port forwarding (IRAN only)"
-echo -e "  ${CYAN}  |${NC}  ${YELLOW}7${NC}) GOST    - Port forwarding with evasion modes (IRAN only)"
+echo -e "  ${CYAN}  |${NC}  ${YELLOW}7${NC}) GOST    - Port forwarding TCP (IRAN only)"
 echo -e "  ${CYAN}  +---------------------------------------------${NC}"
 echo ""
 read -p "  Choice (1-7): " side_choice
@@ -257,7 +257,7 @@ if [ "$SIDE" = "status" ]; then
         echo -e "  ${CYAN}|${NC} ${YELLOW}HAProxy${NC}   ${YELLOW}Not running${NC} (or not installed)                    ${CYAN}|${NC}"
     fi
     if systemctl is-active gost-gre &>/dev/null 2>/dev/null; then
-        echo -e "  ${CYAN}|${NC} ${YELLOW}GOST${NC}      ${GREEN}Running${NC} (evasion port forwarding)                 ${CYAN}|${NC}"
+        echo -e "  ${CYAN}|${NC} ${YELLOW}GOST${NC}      ${GREEN}Running${NC} (TCP port forwarding)                      ${CYAN}|${NC}"
     else
         echo -e "  ${CYAN}|${NC} ${YELLOW}GOST${NC}      ${YELLOW}Not running${NC} (or not configured)                   ${CYAN}|${NC}"
     fi
@@ -468,7 +468,7 @@ EOF
     exit 0
 fi
 
-# ----- GOST: port forwarding with evasion modes (IRAN only) -----
+# ----- GOST: TCP port forwarding (IRAN only) -----
 GOST_BIN="/usr/local/bin/gost"
 GOST_DIR="/etc/gost-gre"
 GOST_CONF="$GOST_DIR/config"
@@ -520,97 +520,11 @@ if [ "$SIDE" = "gost" ]; then
 
     echo ""
     echo -e "  ${CYAN}╔════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "  ${CYAN}║${NC}   ${GREEN}GOST - Port forwarding with evasion modes${NC} (IRAN -> KHAREJ)      ${CYAN}║${NC}"
-    echo -e "  ${CYAN}║${NC}   ${DIM}Modes that are harder for firewalls to detect.${NC}                    ${CYAN}║${NC}"
+    echo -e "  ${CYAN}║${NC}   ${GREEN}GOST - Port forwarding (TCP)${NC}  IRAN -> KHAREJ                   ${CYAN}║${NC}"
     echo -e "  ${CYAN}╚════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "  ${YELLOW}>> Backend (tunnel)${NC} ${CYAN}$BACKEND_IP${NC}"
-    echo ""
-    echo -e "  ${BOLD}Listener mode (evasion):${NC}"
-    echo -e "  ${CYAN}  |${NC}  ${GREEN}1${NC}) tcp   - Plain TCP (like HAProxy, no obfuscation)"
-    echo -e "  ${CYAN}  |${NC}  ${GREEN}2${NC}) tls   - TLS (looks like HTTPS; DPI-resistant)"
-    echo -e "  ${CYAN}  |${NC}  ${GREEN}3${NC}) wss   - WebSocket over TLS (browser-like; harder to detect)"
-    echo -e "  ${CYAN}  |${NC}  ${GREEN}4${NC}) http2 - HTTP/2 over TLS (normal web traffic shape)"
-    echo -e "  ${CYAN}  +------------------------------------------------------------------${NC}"
-    read -p "  Mode (1-4) [default 2=tls]: " mode_choice
-    case "${mode_choice:-2}" in
-        1) GOST_MODE="tcp";;
-        2) GOST_MODE="tls";;
-        3) GOST_MODE="wss";;
-        4) GOST_MODE="http2";;
-        *) GOST_MODE="tls";;
-    esac
-
-    # For tls/wss/http2: use existing cert in GOST_DIR or get new one (Let's Encrypt)
-    # GOST expects certificate here: CERT_FILE=$GOST_DIR/cert.pem, KEY_FILE=$GOST_DIR/key.pem
-    CERT_FILE=""
-    KEY_FILE=""
-    if [ "$GOST_MODE" != "tcp" ]; then
-        mkdir -p "$GOST_DIR"
-        GOST_CERT="$GOST_DIR/cert.pem"
-        GOST_KEY="$GOST_DIR/key.pem"
-        if [ -f "$GOST_CERT" ] && [ -f "$GOST_KEY" ]; then
-            echo ""
-            read -p "  Use existing certificate in $GOST_DIR? (y/n) [y]: " use_existing
-            use_existing="${use_existing:-y}"
-            if [[ "$use_existing" =~ ^[yY] ]]; then
-                CERT_FILE="$GOST_CERT"
-                KEY_FILE="$GOST_KEY"
-                echo -e "  ${GREEN}Using existing cert: ${CYAN}$CERT_FILE${NC}"
-            fi
-        fi
-        if [ -z "$CERT_FILE" ]; then
-            echo ""
-            read -p "  Enter domain for TLS certificate (e.g. tunnel.example.com): " GOST_DOMAIN
-            GOST_DOMAIN=$(echo "$GOST_DOMAIN" | tr -d ' ')
-            if [ -z "$GOST_DOMAIN" ]; then
-                echo -e "  ${RED}Domain is required for TLS/WSS/HTTP2 (or place cert in $GOST_DIR and re-run).${NC}"
-                exit 1
-            fi
-
-            # Let's Encrypt (certbot); port 80 must be free and reachable
-            if ! command -v certbot &>/dev/null; then
-                echo -e "  ${YELLOW}Installing certbot...${NC}"
-                apt-get update -qq 2>/dev/null
-                apt-get install -y certbot 2>/dev/null || true
-            fi
-            if ! command -v certbot &>/dev/null; then
-                echo -e "  ${RED}Could not install certbot. See README for manual certificate steps.${NC}"
-                exit 1
-            fi
-
-            echo -e "  ${YELLOW}Freeing port 80 for certificate validation...${NC}"
-            systemctl stop gost-gre 2>/dev/null || true
-            systemctl stop haproxy 2>/dev/null || true
-            for s in nginx apache2 httpd; do systemctl stop "$s" 2>/dev/null || true; done
-            sleep 3
-            if ss -tlnp 2>/dev/null | grep -q ':80 '; then
-                echo -e "  ${YELLOW}Warning: port 80 still in use. Trying certbot anyway...${NC}"
-                ss -tlnp 2>/dev/null | grep ':80 ' || true
-            fi
-
-            CERTBOT_OUT=$(mktemp)
-            CERTBOT_ERR=$(mktemp)
-            trap "rm -f $CERTBOT_OUT $CERTBOT_ERR" EXIT
-            if certbot certonly --standalone -d "$GOST_DOMAIN" \
-                --non-interactive --agree-tos --register-unsafely-without-email \
-                </dev/null >"$CERTBOT_OUT" 2>"$CERTBOT_ERR"; then
-                CERT_FILE="/etc/letsencrypt/live/$GOST_DOMAIN/fullchain.pem"
-                KEY_FILE="/etc/letsencrypt/live/$GOST_DOMAIN/privkey.pem"
-                echo -e "  ${GREEN}Certificate obtained for ${CYAN}$GOST_DOMAIN${NC}"
-            else
-                echo -e "  ${RED}Certbot failed for $GOST_DOMAIN${NC}"
-                echo -e "  ${YELLOW}Certbot output:${NC}"
-                cat "$CERTBOT_ERR" | head -50
-                echo ""
-                echo -e "  ${DIM}You can get a certificate manually and place it in $GOST_DIR (see README).${NC}"
-                systemctl start haproxy 2>/dev/null || true
-                exit 1
-            fi
-            systemctl start haproxy 2>/dev/null || true
-            for s in nginx apache2 httpd; do systemctl start "$s" 2>/dev/null || true; done
-        fi
-    fi
+    GOST_MODE="tcp"
 
     # Load existing ports if re-running
     existing_ports=""
@@ -649,38 +563,12 @@ if [ "$SIDE" = "gost" ]; then
     mkdir -p "$GOST_DIR"
     echo "GOST_MODE=$GOST_MODE" > "$GOST_CONF"
     echo "BACKEND_IP=$BACKEND_IP" >> "$GOST_CONF"
-    [ -n "$CERT_FILE" ] && echo "CERT_FILE=$CERT_FILE" >> "$GOST_CONF"
-    [ -n "$KEY_FILE" ] && echo "KEY_FILE=$KEY_FILE" >> "$GOST_CONF"
 
-    # TLS/WSS/HTTP2: require cert and key to exist (avoid "open : no such file" from GOST)
-    if [[ "$GOST_MODE" =~ ^(tls|wss|http2)$ ]]; then
-        if [ -z "$CERT_FILE" ] || [ -z "$KEY_FILE" ]; then
-            echo -e "  ${RED}Certificate paths are missing. Re-run and choose domain or place cert in $GOST_DIR.${NC}"
-            exit 1
-        fi
-        if [ ! -f "$CERT_FILE" ] || [ ! -f "$KEY_FILE" ]; then
-            echo -e "  ${RED}Certificate not found: $CERT_FILE or $KEY_FILE${NC}"
-            exit 1
-        fi
-    fi
-
-    # Build gost -L arguments from ports file (array of URLs only; we add -L before each)
+    # Build gost -L arguments from ports file (TCP only)
     GOST_L_ARGS=()
     while IFS='=' read -r LPORT BPORT; do
         [ -z "$LPORT" ] && continue
-        case "$GOST_MODE" in
-            tcp)
-                GOST_L_ARGS+=("tcp://:${LPORT}/${BACKEND_IP}:${BPORT}")
-                ;;
-            tls|wss|http2)
-                # GOST v3: cert params apply to listener; use scoped names so listener picks them up
-                opts="listener.certFile=${CERT_FILE}&listener.keyFile=${KEY_FILE}"
-                GOST_L_ARGS+=("${GOST_MODE}://:${LPORT}/${BACKEND_IP}:${BPORT}?${opts}")
-                ;;
-            *)
-                GOST_L_ARGS+=("tcp://:${LPORT}/${BACKEND_IP}:${BPORT}")
-                ;;
-        esac
+        GOST_L_ARGS+=("tcp://:${LPORT}/${BACKEND_IP}:${BPORT}")
     done < "$GOST_PORTS" 2>/dev/null
 
     if [ ${#GOST_L_ARGS[@]} -eq 0 ]; then
@@ -688,16 +576,16 @@ if [ "$SIDE" = "gost" ]; then
         exit 0
     fi
 
-    # Build ExecStart: one "-L URL" per port; quote URL so "&" is not interpreted by systemd
+    # Build ExecStart: one "-L URL" per port
     EXEC_START="$GOST_CMD"
     for url in "${GOST_L_ARGS[@]}"; do
-        EXEC_START="$EXEC_START -L \"$url\""
+        EXEC_START="$EXEC_START -L $url"
     done
 
     # Systemd unit
     cat > /etc/systemd/system/gost-gre.service << EOF
 [Unit]
-Description=GOST port forwarding (gre-haproxy evasion)
+Description=GOST TCP port forwarding (gre-haproxy)
 After=network.target
 
 [Service]
@@ -715,16 +603,7 @@ EOF
     sleep 1
     if systemctl is-active gost-gre &>/dev/null; then
         echo ""
-        echo -e "  ${GREEN}GOST is running. Port forwarding active (mode: ${GOST_MODE}).${NC}"
-        if [[ "$GOST_MODE" =~ ^(tls|wss|http2)$ ]]; then
-            first_port=$(head -1 "$GOST_PORTS" 2>/dev/null | cut -d'=' -f1)
-            first_port=${first_port:-5050}
-            echo ""
-            echo -e "  ${CYAN}--- User has one config; all handling is on this server (IRAN = middle) ---${NC}"
-            echo -e "  ${DIM}Give users: server = this server domain, port = ${first_port}, TLS on.${NC}"
-            echo -e "  ${DIM}No GOST on user device. This server does TLS and forwards to Germany.${NC}"
-            echo -e "  ${CYAN}-------------------------------------------------------------------${NC}"
-        fi
+        echo -e "  ${GREEN}GOST is running. Port forwarding active (TCP).${NC}"
     else
         echo -e "  ${RED}GOST failed to start. Check: journalctl -u gost-gre -n 30${NC}"
     fi

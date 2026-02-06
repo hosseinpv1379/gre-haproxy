@@ -25,77 +25,31 @@ bash <(curl -sSL https://raw.githubusercontent.com/hosseinpv1379/gre-haproxy/mai
 - Linux, root (sudo)
 - `apt` for HAProxy install (Debian/Ubuntu)
 
-## Manual certificate for GOST (TLS/WSS/HTTP2)
+## GOST in this script (TCP only)
 
-GOST expects the certificate and key in a fixed path. If you get the certificate yourself (e.g. when port 80 is blocked or you use DNS challenge), put the files where the script expects them:
+Option **7 (GOST)** in the script is **TCP** port forwarding only (IRAN → KHAREJ). No TLS/WSS/HTTP2.
 
-| File   | Path (on IRAN server)   |
-|--------|-------------------------|
-| Certificate (full chain) | `/etc/gost-gre/cert.pem` |
-| Private key              | `/etc/gost-gre/key.pem`  |
+## GOST Reverse Tunnel – connection from outside to Iran
 
-### 1) Create the directory
+To have **traffic from outside (e.g. Germany) reach Iran**, use GOST **Reverse Proxy Tunnel**. It runs **on both sides**: the **client on Iran** connects out to the **server on Germany**; visitors that hit Germany are sent through the tunnel to Iran.
 
-```bash
-sudo mkdir -p /etc/gost-gre
-```
+**Flow:** Visitor → **Germany (tunnel server)** → tunnel (held by Iran client) → **Iran (tunnel client)** → local service in Iran.
 
-### 2) Get the certificate (choose one method)
+- **Server (e.g. Germany):** Listens on a public entry (e.g. :80), has tunnel IDs (and optional hostname rules). Sends incoming traffic through the tunnel to the client.
+- **Client (e.g. Iran):** Connects out to the server and keeps the tunnel open; forwards tunneled traffic to a local address.
 
-**Option A – Certbot with DNS challenge** (works when port 80 is blocked):
+**Example:**
 
-```bash
-sudo certbot certonly --manual --preferred-challenges dns -d YOUR_DOMAIN
-```
+1. **On Germany (server):**
+   ```bash
+   gost -L "tunnel://:8443?entrypoint=:80&tunnel=iran.example.com:4d21094e-b74c-4916-86c1-d9fa36ea677b"
+   ```
+2. **On Iran (client):**
+   ```bash
+   gost -L rtcp://:0/127.0.0.1:80 -F "tunnel://GERMANY_IP:8443?tunnel.id=4d21094e-b74c-4916-86c1-d9fa36ea677b"
+   ```
 
-Add the TXT record Certbot shows to your DNS, then press Enter. After success, copy the cert and key into GOST paths:
-
-```bash
-sudo cp /etc/letsencrypt/live/YOUR_DOMAIN/fullchain.pem /etc/gost-gre/cert.pem
-sudo cp /etc/letsencrypt/live/YOUR_DOMAIN/privkey.pem /etc/gost-gre/key.pem
-sudo chmod 600 /etc/gost-gre/key.pem
-```
-
-**Option B – Certbot standalone** (if port 80 is free):
-
-```bash
-sudo systemctl stop gost-gre haproxy 2>/dev/null
-sudo certbot certonly --standalone -d YOUR_DOMAIN --non-interactive --agree-tos --register-unsafely-without-email
-sudo cp /etc/letsencrypt/live/YOUR_DOMAIN/fullchain.pem /etc/gost-gre/cert.pem
-sudo cp /etc/letsencrypt/live/YOUR_DOMAIN/privkey.pem /etc/gost-gre/key.pem
-sudo chmod 600 /etc/gost-gre/key.pem
-sudo systemctl start haproxy 2>/dev/null
-```
-
-**Option C – Certificate from elsewhere**
-
-Copy your full-chain certificate to `/etc/gost-gre/cert.pem` and the private key to `/etc/gost-gre/key.pem`, then:
-
-```bash
-sudo chmod 644 /etc/gost-gre/cert.pem
-sudo chmod 600 /etc/gost-gre/key.pem
-```
-
-### 3) Run the script and use the existing cert
-
-Run the setup script → choose **7 (GOST)** → choose TLS/WSS/HTTP2. When asked **“Use existing certificate in /etc/gost-gre? (y/n)”** answer **y**. Then add your port(s). The script will use the cert and key in `/etc/gost-gre/` and (re)start the GOST service.
-
-## GOST TLS on IRAN (middle server) – one config for the user
-
-**Important:** The user only has **one config** (e.g. V2Ray). All TLS handling and forwarding to Germany happens on the **middle server (IRAN)**. The user does **not** run GOST or any extra client.
-
-Flow: **User (one config, e.g. V2Ray) → IRAN server (GOST: TLS + forward) → Germany (KHAREJ)**.
-
-- **TCP mode:** User config = server = IRAN IP, port = your port. Any app can connect (raw TCP).
-- **TLS / WSS / HTTP2:** User config = server = **your IRAN domain** (e.g. `testg.t30link.net`), port = your GOST port (e.g. 5050), **TLS enabled**. The user’s app (e.g. V2Ray) connects with TLS to IRAN; GOST on IRAN accepts TLS and forwards to Germany. Everything happens on the middle server.
-
-**What you give the user (one config):**
-
-- **Address:** your IRAN server **domain** (for TLS cert to match).
-- **Port:** the GOST listen port (e.g. 5050).
-- **TLS:** on (or WSS/HTTP2 if their app supports it).
-
-The user only points their app (e.g. V2Ray) at that address and port with TLS. No GOST or extra software on the user’s device.
+Visitor requests to Germany (e.g. http://iran.example.com) are sent through the tunnel to Iran and forwarded to 127.0.0.1:80. Full docs: [GOST – Reverse Proxy Tunnel](https://gost.run/en/tutorials/reverse-proxy-tunnel/).
 
 ## Author
 
