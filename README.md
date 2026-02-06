@@ -25,6 +25,135 @@ bash <(curl -sSL https://raw.githubusercontent.com/hosseinpv1379/gre-haproxy/mai
 - Linux, root (sudo)
 - `apt` for HAProxy install (Debian/Ubuntu)
 
+---
+
+## Step-by-step guide: GRE Tunnel + HAProxy setup
+
+This guide walks you through setting up a GRE tunnel between an **IRAN server** and a **KHAREJ server**, testing bandwidth, and configuring HAProxy for port forwarding.
+
+### Step 1: Run the script on both servers
+
+On both servers, download and run the script:
+
+```bash
+bash <(curl -sSL https://raw.githubusercontent.com/hosseinpv1379/gre-haproxy/main/setup-gre-haproxy.sh)
+```
+
+Or if you have the script locally:
+
+```bash
+sudo bash setup-gre-haproxy.sh
+```
+
+---
+
+### Step 2: Setup tunnel on IRAN server
+
+1. On the **IRAN server**, run the script and choose **1** (IRAN).
+2. Answer the prompts:
+   - **IRAN index:** Enter `1` if this is your first IRAN server, `2` for the second, etc. This must match the order you add servers on KHAREJ.
+   - **IRAN server IP:** Confirm or enter the public IP of this IRAN server.
+   - **KHAREJ server IP:** Enter the public IP of your KHAREJ (outside) server.
+3. The script creates the GRE tunnel interface (`gre-haproxy`) and configures it.
+4. You should see: `IRAN tunnel ready. Test: ping BACKEND_IP`
+
+**Verify:** The tunnel interface should be up: `ip link show gre-haproxy`
+
+---
+
+### Step 3: Setup tunnel on KHAREJ server
+
+1. On the **KHAREJ server**, run the script and choose **2** (KHAREJ).
+2. Answer the prompts:
+   - **KHAREJ server IP:** Confirm or enter the public IP of this KHAREJ server.
+   - **New IRAN server IP:** Enter the **same IRAN server public IP** you used in Step 2.
+3. The script creates the GRE tunnel interface (`gre-haproxy1` for the first IRAN, `gre-haproxy2` for the second, etc.) and configures it.
+4. You should see: `KHAREJ ready. On the IRAN server run this script, option 1 (IRAN), index 1. Backend IP for that IRAN: 10.10.x.2`
+
+**Verify:** The tunnel interface should be up: `ip link show gre-haproxy1` (or `gre-haproxy2`, etc.)
+
+---
+
+### Step 4: Test tunnel connectivity
+
+From the **IRAN server**, ping the backend IP shown in Step 3:
+
+```bash
+ping 10.10.x.2
+```
+
+If you get replies, the tunnel is working.
+
+---
+
+### Step 5: Bandwidth test (iperf3)
+
+Before configuring HAProxy, test the tunnel bandwidth to ensure it meets your needs.
+
+#### 5.1: Start iperf3 server on KHAREJ
+
+1. On the **KHAREJ server**, run the script and choose **5** (iperf3).
+2. When prompted: **"Run server for 90 seconds? (y/n)"**, type **`y`** and press Enter.
+3. The iperf3 server starts listening on port 5201 for 90 seconds.
+
+#### 5.2: Run bandwidth test from IRAN
+
+1. On the **IRAN server**, run the script and choose **5** (iperf3).
+2. The script automatically runs the bandwidth test using multiple streams (default: 10 connections) for a duration (default: 30 seconds).
+3. You will see output showing:
+   - **Bandwidth:** Upload speed from IRAN to KHAREJ
+   - **Transfer:** Total data transferred
+   - **Retr:** Retransmissions (should be low for a stable connection)
+
+**Note:** Make sure to run Step 5.1 (server on KHAREJ) **before** Step 5.2 (test from IRAN), and complete Step 5.2 within the 90-second window.
+
+---
+
+### Step 6: Configure HAProxy port forwarding (if bandwidth is good)
+
+If the bandwidth test shows acceptable performance, proceed to configure HAProxy for port forwarding.
+
+1. On the **IRAN server**, run the script and choose **6** (HAProxy).
+2. The script installs HAProxy if not already installed.
+3. When prompted for ports, enter them in the format: **`LOCAL_PORT=REMOTE_PORT`**
+
+   **Examples:**
+   - `443=443` — Forward port 443 on IRAN to port 443 on KHAREJ
+   - `8080=80` — Forward port 8080 on IRAN to port 80 on KHAREJ
+   - `2222=22` — Forward port 2222 on IRAN to port 22 (SSH) on KHAREJ
+   - `443=443,8080=80,2222=22` — Multiple ports separated by commas
+
+4. The script configures HAProxy and restarts the service.
+5. HAProxy listens on the specified ports on the IRAN server and forwards traffic through the GRE tunnel to the corresponding ports on the KHAREJ server.
+
+**Verify:** Check HAProxy status: `systemctl status haproxy` (should be active). Test forwarding: from IRAN, `curl http://127.0.0.1:8080` (if you forwarded 8080→80) should reach the service on KHAREJ port 80.
+
+---
+
+### Step 7: Check status
+
+At any time, run the script and choose **4** (Status) on either server to see:
+- Tunnel interface status
+- Tunnel IP addresses
+- Connectivity (ping) to the other side
+- HAProxy status (if configured)
+- GOST reverse tunnel status (if configured)
+
+---
+
+### Summary
+
+After completing these steps:
+
+- ✅ GRE tunnel is established between IRAN and KHAREJ
+- ✅ Bandwidth has been tested
+- ✅ HAProxy is configured for port forwarding (if bandwidth was acceptable)
+- ✅ Services on KHAREJ are accessible through the IRAN server’s public IP on the forwarded ports
+
+**Traffic flow:** Client → IRAN (public IP, forwarded port) → GRE tunnel → KHAREJ (target port)
+
+---
+
 ## GOST in this script (TCP only)
 
 Option **7 (GOST)** in the script is **TCP** port forwarding only (IRAN → KHAREJ). No TLS/WSS/HTTP2.
