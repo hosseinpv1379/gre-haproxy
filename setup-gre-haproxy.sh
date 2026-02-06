@@ -716,6 +716,15 @@ EOF
     if systemctl is-active gost-gre &>/dev/null; then
         echo ""
         echo -e "  ${GREEN}GOST is running. Port forwarding active (mode: ${GOST_MODE}).${NC}"
+        if [[ "$GOST_MODE" =~ ^(tls|wss|http2)$ ]]; then
+            first_port=$(head -1 "$GOST_PORTS" 2>/dev/null | cut -d'=' -f1)
+            first_port=${first_port:-5050}
+            echo ""
+            echo -e "  ${CYAN}--- User has one config; all handling is on this server (IRAN = middle) ---${NC}"
+            echo -e "  ${DIM}Give users: server = this server domain, port = ${first_port}, TLS on.${NC}"
+            echo -e "  ${DIM}No GOST on user device. This server does TLS and forwards to Germany.${NC}"
+            echo -e "  ${CYAN}-------------------------------------------------------------------${NC}"
+        fi
     else
         echo -e "  ${RED}GOST failed to start. Check: journalctl -u gost-gre -n 30${NC}"
     fi

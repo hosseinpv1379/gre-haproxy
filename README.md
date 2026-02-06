@@ -80,19 +80,22 @@ sudo chmod 600 /etc/gost-gre/key.pem
 
 Run the setup script → choose **7 (GOST)** → choose TLS/WSS/HTTP2. When asked **“Use existing certificate in /etc/gost-gre? (y/n)”** answer **y**. Then add your port(s). The script will use the cert and key in `/etc/gost-gre/` and (re)start the GOST service.
 
-## Why TCP works but TLS/WSS/HTTP2 don't connect
+## GOST TLS on IRAN (middle server) – one config for the user
 
-With **TCP** mode, the server accepts **raw TCP**. Any app that connects to `IP:port` works.
+**Important:** The user only has **one config** (e.g. V2Ray). All TLS handling and forwarding to Germany happens on the **middle server (IRAN)**. The user does **not** run GOST or any extra client.
 
-With **TLS / WSS / HTTP2**, the server expects a **TLS handshake** first. If the client connects with plain TCP (same config as for TCP mode), the connection fails.
+Flow: **User (one config, e.g. V2Ray) → IRAN server (GOST: TLS + forward) → Germany (KHAREJ)**.
 
-**Fix:** The client must speak TLS. Use GOST on the client side:
+- **TCP mode:** User config = server = IRAN IP, port = your port. Any app can connect (raw TCP).
+- **TLS / WSS / HTTP2:** User config = server = **your IRAN domain** (e.g. `testg.t30link.net`), port = your GOST port (e.g. 5050), **TLS enabled**. The user’s app (e.g. V2Ray) connects with TLS to IRAN; GOST on IRAN accepts TLS and forwards to Germany. Everything happens on the middle server.
 
-```bash
-gost -L tcp://:2222/10.10.20.2:5050 -F forward+tls://YOUR_DOMAIN:5050
-```
+**What you give the user (one config):**
 
-Then connect your app to `127.0.0.1:2222`. Use your **domain** (e.g. testg.t30link.net), not the IP. For **WSS/HTTP2** you need a client that does WebSocket or HTTP/2 over TLS.
+- **Address:** your IRAN server **domain** (for TLS cert to match).
+- **Port:** the GOST listen port (e.g. 5050).
+- **TLS:** on (or WSS/HTTP2 if their app supports it).
+
+The user only points their app (e.g. V2Ray) at that address and port with TLS. No GOST or extra software on the user’s device.
 
 ## Author
 
